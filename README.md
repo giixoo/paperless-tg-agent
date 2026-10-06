@@ -1,19 +1,16 @@
 # paperless-tg-agent
 
 A Telegram bot for a self-hosted [Paperless-ngx](https://docs.paperless-ngx.com/) archive:
-full-text search, document cards, and (coming in a later milestone) a Claude
-tool-use agent for natural-language Q&A over your documents.
+full-text search, document cards, file upload/download, `/inbox` triage, expiry
+reminders, and a Claude tool-use agent for natural-language Q&A over your documents.
 
 Full requirements: [Spec.md](Spec.md).
 
-**Status:** Milestones 1-4 — config, Paperless client, access control,
-`/help`, `/search`, `/recent`, `/doc`, health endpoint, Docker image, file
-download (📄 buttons) and upload with task polling/duplicate detection, the
-Claude tool-use agent (free-text Q&A, `/usage`, `/clear`, prompt caching,
-daily budget cap), `/inbox` (with a "✅ Done" button that clears the inbox
-tag), `/expiring`, and a daily expiry reminder job. Remaining work per
-Spec.md §10: README/`.env.example` polish and a final green check (milestone
-5).
+**Status:** All milestones (1-5) implemented per Spec.md §10 — config, Paperless
+client, access control, commands (`/help` `/search` `/recent` `/doc` `/inbox`
+`/expiring` `/usage` `/clear`), file upload/download, the Claude agent, and daily
+expiry reminders. See **Known limitations** below before pointing this at a real
+server.
 
 ## Setup
 
@@ -24,9 +21,14 @@ Spec.md §10: README/`.env.example` polish and a final green check (milestone
    uv sync
    uv run python -m paperbot
    ```
-3. Or build and run with Docker, alongside your existing Paperless-ngx
-   compose stack (see `docker-compose.example.yml` once added in a later
-   milestone):
+3. Or, to deploy alongside an existing Paperless-ngx docker compose stack:
+   merge the `telegram-bot` service from `docker-compose.example.yml` into
+   your compose file (see that file's comments for details), then:
+   ```
+   docker compose build telegram-bot
+   docker compose up -d telegram-bot
+   ```
+   For a standalone build/run instead:
    ```
    docker build -t paperless-tg-agent .
    docker run --rm --env-file .env -v $(pwd)/bot-data:/data paperless-tg-agent
@@ -53,7 +55,7 @@ All configuration is via environment variables (see `.env.example`).
 | `PAPERLESS_PUBLIC_URL` | no | `PAPERLESS_URL` | Used for clickable links in replies |
 | `PAPERLESS_TOKEN` | yes | | Paperless API token |
 | `PAPERLESS_API_VERSION` | no | `9` | Sent as `Accept: application/json; version=N` |
-| `ANTHROPIC_API_KEY` | yes | | Used by the agent (later milestone) |
+| `ANTHROPIC_API_KEY` | yes | | Used by the agent |
 | `LLM_MODEL` | no | `claude-haiku-4-5` | |
 | `AGENT_MAX_STEPS` | no | `5` | Max tool-use iterations per question |
 | `AGENT_MAX_TOKENS` | no | `1024` | Output cap per LLM call |
@@ -73,6 +75,34 @@ All configuration is via environment variables (see `.env.example`).
 | `DATA_DIR` | no | `/data` | SQLite location |
 | `HEALTH_PORT` | no | `8080` | `/health` HTTP endpoint |
 | `LOG_LEVEL` | no | `INFO` | |
+
+## Known limitations
+
+A few Paperless-ngx API details aren't fully pinned down by the public docs
+and couldn't be verified against a real v3.2.x server during development.
+Each is marked with a `TODO(paperless-api)` comment in the code; check these
+against your server once it's running, per CLAUDE.md's clean-room/no-guessing
+policy:
+
+- **Monetary custom field formatting** (`paperless.py`) — falls back to
+  `str(value)`.
+- **`custom_field_query` grammar** (`find_by_custom_field` tool, `/expiring`,
+  reminders) — implemented literally per Spec.md's own example
+  (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field *name*).
+- **Task response shape**, including whether `related_document` is present
+  on SUCCESS (upload flow).
+- **`post_document/` response body** (bare UUID string vs. `{"task_id": ...}`)
+  — both are handled.
+- **`tags__id__in` filter** (`/inbox`) and the bulk-edit `modify_tags`
+  parameter shape (the "✅ Done" button).
+
+Everything else is tested against fixtures modeled on the public API docs
+(`tests/fixtures/`), with no real network calls in the test suite.
+
+## Out of scope (v1)
+
+Per Spec.md §11: multi-user Paperless tokens (one shared token), editing
+metadata from Telegram, combining album photos into one PDF, voice messages.
 
 ## License
 

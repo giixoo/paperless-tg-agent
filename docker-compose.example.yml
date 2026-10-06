@@ -1,0 +1,24 @@
+# Example service definition for paperless-tg-agent.
+#
+# This is NOT a standalone stack: it assumes you already have a working
+# Paperless-ngx docker compose setup (webserver, db, broker, etc.) at e.g.
+# /opt/paperless/docker-compose.yml, on a shared compose network. Clone this
+# repo alongside it (e.g. /opt/paperless/paperless-tg-agent) and merge the
+# `telegram-bot` service below into your existing compose file, per SPEC §9.
+#
+# Build and run:
+#   docker compose build telegram-bot
+#   docker compose up -d telegram-bot
+
+services:
+  telegram-bot:
+    build: ./paperless-tg-agent
+    restart: unless-stopped
+    depends_on: [webserver]
+    env_file: .env # contains secrets: TELEGRAM_BOT_TOKEN, PAPERLESS_TOKEN, ANTHROPIC_API_KEY
+    environment:
+      PAPERLESS_URL: http://webserver:8000
+      PAPERLESS_PUBLIC_URL: http://paperless.local:8000
+      TZ: Europe/Warsaw
+    volumes:
+      - ./bot-data:/data
