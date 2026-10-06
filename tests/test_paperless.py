@@ -370,3 +370,20 @@ async def test_parses_real_server_document_with_custom_fields_and_notes(
     assert doc.notes == "test note"
     assert doc.correspondent is None
     assert doc.document_type is None  # type id 4 not in our taxonomy fixture
+
+
+async def test_find_by_custom_field_query_sends_field_name_grammar(
+    client: PaperlessClient, mock_taxonomy: None, respx_mock: respx.MockRouter
+) -> None:
+    """Confirmed against a real server: `[field_name, op, value]`, both for
+    `exists` and `range`, correctly filters by field NAME (not id)."""
+    route = respx_mock.get("http://paperless.test/api/documents/").respond(
+        json={"count": 0, "next": None, "previous": None, "results": []}
+    )
+
+    query = json.dumps(["Expires", "range", ["2026-01-01", "2026-12-31"]])
+    await client.find_by_custom_field_query(query, limit=5)
+
+    request = route.calls.last.request
+    assert request.url.params["custom_field_query"] == query
+    assert request.url.params["page_size"] == "5"

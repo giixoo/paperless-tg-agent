@@ -445,11 +445,9 @@ class PaperlessClient:
     ) -> list[Document]:
         """Filter documents by `custom_field_query` (SPEC §5.4/§7).
 
-        TODO(paperless-api): the exact `custom_field_query` grammar isn't
-        pinned down in the public docs beyond SPEC's own example
-        (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field NAME
-        rather than id). Implemented literally per that example; verify
-        against a real v3.2.x server and adjust if it expects field ids.
+        Grammar confirmed against a real v3.2.x server: `[field_name, op,
+        value]` with the field NAME (not id). Both `exists` and `range`
+        verified to correctly filter a real document.
         """
         data = await self._get_json(
             "/api/documents/",

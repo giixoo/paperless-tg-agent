@@ -80,15 +80,14 @@ All configuration is via environment variables (see `.env.example`).
 
 Most of the Paperless-ngx API shape has now been verified against a real
 v3.2.x server (tags incl. `is_inbox_tag`, custom field `data_type` values and
-their monetary/date/string value shapes, and the document list/detail shape)
-and is pinned by `tests/fixtures/real_*.json`. A couple of details remain
-unverified — marked with a `TODO(paperless-api)` comment in the code, per
-CLAUDE.md's clean-room/no-guessing policy:
+their monetary/date/string value shapes, the document list/detail shape, and
+the `custom_field_query` grammar — both `exists` and `range` confirmed to
+correctly filter by field *name*, exactly as `find_by_custom_field`,
+`/expiring`, and the reminder job use it) and is pinned by
+`tests/fixtures/real_*.json`. A couple of details remain unverified — marked
+with a `TODO(paperless-api)` comment in the code, per CLAUDE.md's clean-room/
+no-guessing policy:
 
-- **`custom_field_query` grammar** (`find_by_custom_field` tool, `/expiring`,
-  reminders) — implemented literally per Spec.md's own example
-  (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field *name*); not
-  yet confirmed to actually filter correctly on a real server.
 - **Task response shape** after an upload, including whether
   `related_document` is present on SUCCESS.
 - **`post_document/` response body** (bare UUID string vs. `{"task_id": ...}`)
