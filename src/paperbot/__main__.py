@@ -18,6 +18,7 @@ from paperbot.health import run_health_server
 from paperbot.paperless import PaperlessClient
 from paperbot.telegram.auth import build_auth_middleware
 from paperbot.telegram.commands import DEPS_KEY, Deps, register_handlers
+from paperbot.telegram.files import register_file_handlers
 from paperbot.telegram.keyboards import SearchStateStore
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ async def _run(settings: Settings) -> None:
             TypeHandler(Update, build_auth_middleware(settings.telegram_allowed_users)), group=-1
         )
         register_handlers(application)
+        register_file_handlers(application)
 
         alive = True
 

@@ -6,10 +6,11 @@ tool-use agent for natural-language Q&A over your documents.
 
 Full requirements: [Spec.md](Spec.md).
 
-**Status:** Milestone 1 (skeleton) — config, Paperless client, access control,
-`/help`, `/search`, `/recent`, `/doc`, health endpoint, Docker image. Upload/
-download, the agent, `/inbox`, `/expiring` and reminders land in later
-milestones (see Spec.md §10).
+**Status:** Milestones 1-2 — config, Paperless client, access control,
+`/help`, `/search`, `/recent`, `/doc`, health endpoint, Docker image, file
+download (📄 buttons) and upload with task polling/duplicate detection. The
+agent, `/inbox`, `/expiring` and reminders land in later milestones (see
+Spec.md §10).
 
 ## Setup
 

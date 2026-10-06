@@ -1,4 +1,4 @@
-"""/help /search /recent /doc command handlers (SPEC §4.2, milestone 1)."""
+"""/help /search /recent /doc command handlers (SPEC §4.2)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from paperbot.telegram.keyboards import (
     SearchState,
     SearchStateStore,
     decode_search_page,
-    search_pagination_keyboard,
+    doc_card_keyboard,
+    search_results_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     token = deps.search_store.put(SearchState(query=query))
     total_pages = math.ceil(total / SEARCH_PAGE_SIZE)
-    keyboard = search_pagination_keyboard(token, page=1, total_pages=total_pages)
+    keyboard = search_results_keyboard(docs, token, page=1, total_pages=total_pages)
     await update.message.reply_text(_format_doc_list(docs), reply_markup=keyboard)
 
 
@@ -140,7 +141,7 @@ async def search_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.answer()
     total_pages = max(1, math.ceil(total / SEARCH_PAGE_SIZE))
-    keyboard = search_pagination_keyboard(token, page=page, total_pages=total_pages)
+    keyboard = search_results_keyboard(docs, token, page=page, total_pages=total_pages)
     await query.edit_message_text(_format_doc_list(docs), reply_markup=keyboard)
 
 
@@ -195,7 +196,9 @@ async def doc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     public_url = str(deps.settings.paperless_public_url_or_default)
-    await update.message.reply_text(_format_doc_card(doc, lang, public_url))
+    await update.message.reply_text(
+        _format_doc_card(doc, lang, public_url), reply_markup=doc_card_keyboard(doc.id)
+    )
 
 
 def register_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:

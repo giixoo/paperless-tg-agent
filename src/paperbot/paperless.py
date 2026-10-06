@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 TAXONOMY_TTL_SECONDS = 10 * 60
 _DEFAULT_TIMEOUT = 15.0
+_DOWNLOAD_TIMEOUT = 120.0
 _RETRYABLE_STATUS = {500, 502, 503, 504}
 _MAX_RETRIES = 2
 
@@ -76,6 +78,13 @@ class Document:
     notes: str | None = None
     page_count: int | None = None
     snippet: str | None = None
+
+
+@dataclass(slots=True)
+class TaskResult:
+    status: str
+    result: str | None
+    related_document: int | None
 
 
 def _parse_created(value: str | None) -> date | None:
@@ -254,13 +263,13 @@ class PaperlessClient:
             "Accept": f"application/json; version={self._settings.paperless_api_version}",
         }
 
-    async def _get_json(
+    async def _request_get(
         self,
         path: str,
         params: dict[str, Any] | None = None,
         *,
         request_timeout: float = _DEFAULT_TIMEOUT,
-    ) -> dict[str, Any]:
+    ) -> httpx.Response:
         url = f"{str(self._settings.paperless_url).rstrip('/')}{path}"
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):
@@ -286,9 +295,29 @@ class PaperlessClient:
                 raise PaperlessError(
                     f"{path} returned HTTP {resp.status_code}", status_code=resp.status_code
                 )
-            result: dict[str, Any] = resp.json()
-            return result
+            return resp
         raise PaperlessError(f"request to {path} failed: {last_exc}")
+
+    async def _get_json(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        request_timeout: float = _DEFAULT_TIMEOUT,
+    ) -> dict[str, Any]:
+        resp = await self._request_get(path, params, request_timeout=request_timeout)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def _get_any(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        request_timeout: float = _DEFAULT_TIMEOUT,
+    ) -> Any:
+        resp = await self._request_get(path, params, request_timeout=request_timeout)
+        return resp.json()
 
     async def ping(self) -> bool:
         try:
@@ -373,3 +402,83 @@ class PaperlessClient:
             "/api/documents/", params={"ordering": "-created", "page_size": limit}
         )
         return [await self._to_document(r) for r in data.get("results", [])]
+
+    async def download_document(self, doc_id: int, *, original: bool) -> tuple[bytes, str] | None:
+        """Download a document's file. Returns (content, filename) or None if
+        the document doesn't exist. Tries to recover the real filename from
+        the `Content-Disposition` header, falling back to the metadata or a
+        generic name.
+        """
+        params = {"original": "true"} if original else {}
+        try:
+            resp = await self._request_get(
+                f"/api/documents/{doc_id}/download/",
+                params=params,
+                request_timeout=_DOWNLOAD_TIMEOUT,
+            )
+        except PaperlessError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        filename = _filename_from_content_disposition(resp.headers.get("content-disposition"))
+        if filename is None:
+            filename = f"document_{doc_id}" + (".pdf" if not original else "")
+        return resp.content, filename
+
+    async def upload_document(
+        self, content: bytes, filename: str, *, title: str | None = None
+    ) -> str:
+        """POST a new document for consumption. Returns the Paperless task UUID.
+
+        TODO(paperless-api): the public docs don't pin down the exact response
+        body shape for `post_document/` across v3.2.x point releases (a bare
+        quoted UUID string vs. a small JSON object). Handling both here;
+        verify against the real server and simplify once confirmed.
+        """
+        url = f"{str(self._settings.paperless_url).rstrip('/')}/api/documents/post_document/"
+        files = {"document": (filename, content)}
+        data = {"title": title} if title else {}
+        try:
+            resp = await self._http.post(
+                url, files=files, data=data, headers=self._headers(), timeout=_DOWNLOAD_TIMEOUT
+            )
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error uploading document: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"post_document returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
+        parsed = resp.json()
+        if isinstance(parsed, str):
+            return parsed
+        if isinstance(parsed, dict) and "task_id" in parsed:
+            return str(parsed["task_id"])
+        raise PaperlessError(f"unexpected post_document response shape: {parsed!r}")
+
+    async def get_task(self, task_id: str) -> TaskResult | None:
+        """Look up a Paperless task by id.
+
+        TODO(paperless-api): verify against a real server whether this
+        returns a bare list or a paginated {"results": [...]} envelope, and
+        whether `related_document` is present on this server's version.
+        """
+        data = await self._get_any("/api/tasks/", params={"task_id": task_id})
+        items = data if isinstance(data, list) else data.get("results", [])
+        if not items:
+            return None
+        item = items[0]
+        return TaskResult(
+            status=item.get("status", ""),
+            result=item.get("result"),
+            related_document=item.get("related_document"),
+        )
+
+
+def _filename_from_content_disposition(header: str | None) -> str | None:
+    if not header:
+        return None
+    match = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";\r\n]+)"?', header)
+    if match:
+        return match.group(1)
+    return None

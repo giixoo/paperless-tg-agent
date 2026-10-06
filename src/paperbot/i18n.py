@@ -127,6 +127,48 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "Strona {page}/{pages}",
         "ru": "Страница {page}/{pages}",
     },
+    "upload_success": {
+        "en": "✅ Added #{id}: {title}\n{link}\n\nOCR + classification will run in background.",
+        "uk": "✅ Додано #{id}: {title}\n{link}\n\nOCR і класифікація виконаються у фоні.",
+        "pl": "✅ Dodano #{id}: {title}\n{link}\n\nOCR i klasyfikacja wykonają się w tle.",
+        "ru": "✅ Добавлено #{id}: {title}\n{link}\n\nOCR и классификация выполнятся в фоне.",
+    },
+    "upload_success_no_id": {
+        "en": "✅ Document added. OCR + classification will run in background.",
+        "uk": "✅ Документ додано. OCR і класифікація виконаються у фоні.",
+        "pl": "✅ Dokument dodany. OCR i klasyfikacja wykonają się w tle.",
+        "ru": "✅ Документ добавлен. OCR и классификация выполнятся в фоне.",
+    },
+    "upload_duplicate": {
+        "en": "Already in Paperless as #{id}.\n{link}",
+        "uk": "Вже є в Paperless як #{id}.\n{link}",
+        "pl": "Już jest w Paperless jako #{id}.\n{link}",
+        "ru": "Уже есть в Paperless как #{id}.\n{link}",
+    },
+    "upload_duplicate_generic": {
+        "en": "This looks like a duplicate of a document already in Paperless.",
+        "uk": "Схоже, це дублікат документа, який вже є в Paperless.",
+        "pl": "Wygląda na duplikat dokumentu już istniejącego w Paperless.",
+        "ru": "Похоже, это дубликат документа, который уже есть в Paperless.",
+    },
+    "upload_failed": {
+        "en": "Upload failed: {error}",
+        "uk": "Завантаження не вдалося: {error}",
+        "pl": "Przesyłanie nie powiodło się: {error}",
+        "ru": "Загрузка не удалась: {error}",
+    },
+    "upload_timeout": {
+        "en": "Still processing after 5 minutes — check Paperless later.",
+        "uk": "Досі обробляється через 5 хвилин — перевірте Paperless пізніше.",
+        "pl": "Wciąż przetwarzane po 5 minutach — sprawdź Paperless później.",
+        "ru": "Всё ещё обрабатывается после 5 минут — проверьте Paperless позже.",
+    },
+    "file_too_large": {
+        "en": "File is too large for Telegram. Open it in Paperless instead:\n{link}",
+        "uk": "Файл надто великий для Telegram. Відкрийте його в Paperless:\n{link}",
+        "pl": "Plik jest za duży dla Telegrama. Otwórz go w Paperless:\n{link}",
+        "ru": "Файл слишком большой для Telegram. Откройте его в Paperless:\n{link}",
+    },
 }
 
 
