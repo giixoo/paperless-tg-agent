@@ -10,7 +10,7 @@ import pytest
 import respx
 
 from paperbot.config import Settings
-from paperbot.paperless import PaperlessClient, PaperlessError
+from paperbot.paperless import PaperlessClient, PaperlessError, _format_custom_field_value
 
 
 @pytest.fixture
@@ -314,3 +314,59 @@ async def test_bulk_remove_tags_raises_on_error(
 
     with pytest.raises(PaperlessError):
         await client.bulk_remove_tags([412], [2])
+
+
+def test_format_custom_field_value_monetary_matches_real_server() -> None:
+    # Pinned against a real Paperless-ngx document's custom_fields value:
+    # ISO 4217 currency code immediately followed by the amount.
+    assert _format_custom_field_value("USD12.30", "monetary") == "12.30 USD"
+    assert _format_custom_field_value("PLN-5.00", "monetary") == "-5.00 PLN"
+
+
+def test_format_custom_field_value_monetary_falls_back_on_unknown_shape() -> None:
+    assert _format_custom_field_value("???", "monetary") == "???"
+
+
+def test_format_custom_field_value_date_matches_real_server() -> None:
+    assert _format_custom_field_value("2026-10-04", "date") == "04.10.2026"
+
+
+def test_format_custom_field_value_string_passthrough() -> None:
+    assert _format_custom_field_value("2840-8002", "string") == "2840-8002"
+
+
+def test_format_custom_field_value_none_is_empty_string() -> None:
+    assert _format_custom_field_value(None, "string") == ""
+
+
+async def test_parses_real_server_document_with_custom_fields_and_notes(
+    client: PaperlessClient,
+    respx_mock: respx.MockRouter,
+    load_fixture: Callable[[str], dict[str, Any]],
+) -> None:
+    """Pinned against a real GET /api/documents/1166/ response, after the
+    user set all three custom fields on a test document. Uses the real
+    server's own /api/custom_fields/ field ids (1/2/3), not the synthetic
+    `mock_taxonomy` fixture's ids (30/31/32)."""
+    empty_page = {"count": 0, "next": None, "previous": None, "results": []}
+    respx_mock.get("http://paperless.test/api/tags/").respond(json=empty_page)
+    respx_mock.get("http://paperless.test/api/document_types/").respond(json=empty_page)
+    respx_mock.get("http://paperless.test/api/correspondents/").respond(json=empty_page)
+    respx_mock.get("http://paperless.test/api/custom_fields/").respond(
+        json=load_fixture("real_custom_fields.json")
+    )
+    respx_mock.get("http://paperless.test/api/documents/1166/").respond(
+        json=load_fixture("real_document_with_custom_fields.json")
+    )
+
+    doc = await client.get_document(1166)
+
+    assert doc is not None
+    assert doc.custom_fields == {
+        "Amount": "12.30 USD",
+        "Expires": "04.10.2026",
+        "Policy / Doc number": "2840-8002",
+    }
+    assert doc.notes == "test note"
+    assert doc.correspondent is None
+    assert doc.document_type is None  # type id 4 not in our taxonomy fixture

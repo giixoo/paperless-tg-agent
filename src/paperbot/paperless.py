@@ -2,9 +2,9 @@
 
 Endpoint shapes are modeled on the publicly documented Paperless-ngx REST API
 (https://docs.paperless-ngx.com/api/) for the v3.2.x server described in
-SPEC.md §1. Some details (notably the exact JSON shape of a "monetary"
-custom field value) are not nailed down in the public docs and are marked
-with TODO below — flagged per CLAUDE.md rather than guessed silently.
+SPEC.md §1, and verified against real server responses where noted. A few
+remaining details aren't nailed down and are marked with TODO below —
+flagged per CLAUDE.md rather than guessed silently.
 """
 
 from __future__ import annotations
@@ -110,6 +110,9 @@ def _extract_notes(value: object) -> str | None:
     return "\n".join(texts) if texts else None
 
 
+_MONETARY_RE = re.compile(r"^([A-Z]{3})(-?\d+(?:\.\d+)?)$")
+
+
 def _format_custom_field_value(value: object, data_type: str) -> str:
     if value is None:
         return ""
@@ -118,9 +121,14 @@ def _format_custom_field_value(value: object, data_type: str) -> str:
         if parsed is not None:
             return parsed.strftime("%d.%m.%Y")
         return value
-    # TODO(paperless-api): verify the exact JSON shape of "monetary" values
-    # against a real v3.2.x server (currency prefix? separate currency key?)
-    # and adjust formatting accordingly. Falling back to str() for now.
+    if data_type == "monetary" and isinstance(value, str):
+        # Confirmed against a real v3.2.x server: ISO 4217 currency code
+        # immediately followed by the amount, e.g. "USD12.30".
+        match = _MONETARY_RE.match(value)
+        if match:
+            currency, amount = match.groups()
+            return f"{amount} {currency}"
+        return value
     return str(value)
 
 

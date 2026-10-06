@@ -1,0 +1,46 @@
+{
+  "id": 1166,
+  "correspondent": null,
+  "document_type": 4,
+  "storage_path": null,
+  "title": "Receipt-2840-8002",
+  "content": "Receipt\nInvoice number 9BF0758D-7539605\nTotal $12.30",
+  "tags": [1, 2],
+  "created": "2026-10-06",
+  "created_date": "2026-10-06",
+  "modified": "2026-10-06T21:38:21.803519+02:00",
+  "added": "2026-10-06T21:35:05.565641+02:00",
+  "deleted_at": null,
+  "archive_serial_number": null,
+  "original_file_name": "Receipt-2840-8002.pdf",
+  "archived_file_name": null,
+  "duplicate_documents": [],
+  "owner": 6,
+  "user_can_change": true,
+  "is_shared_by_requester": false,
+  "notes": [
+    {
+      "id": 1,
+      "note": "test note",
+      "created": "2026-10-06T21:35:54.710358+02:00",
+      "user": { "id": 6, "username": "guriy", "first_name": "", "last_name": "" }
+    }
+  ],
+  "custom_fields": [
+    { "value": "USD12.30", "field": 3 },
+    { "value": "2026-10-04", "field": 1 },
+    { "value": "2840-8002", "field": 2 }
+  ],
+  "page_count": 1,
+  "mime_type": "application/pdf",
+  "root_document": null,
+  "versions": [
+    {
+      "id": 1166,
+      "added": "2026-10-06T19:35:05.565641Z",
+      "version_label": null,
+      "checksum": "91f0235874a0411c79307352e8728b25cb202d6f6b422b30a1342b6d4df4fa17",
+      "is_root": true
+    }
+  ]
+}

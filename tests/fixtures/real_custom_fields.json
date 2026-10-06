@@ -1,0 +1,10 @@
+{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {"id": 3, "name": "Amount", "data_type": "monetary", "extra_data": {"select_options": [], "default_currency": null}, "document_count": 1},
+    {"id": 1, "name": "Expires", "data_type": "date", "extra_data": {"select_options": [], "default_currency": null}, "document_count": 1},
+    {"id": 2, "name": "Policy / Doc number", "data_type": "string", "extra_data": {"select_options": [], "default_currency": null}, "document_count": 1}
+  ]
+}

@@ -78,26 +78,27 @@ All configuration is via environment variables (see `.env.example`).
 
 ## Known limitations
 
-A few Paperless-ngx API details aren't fully pinned down by the public docs
-and couldn't be verified against a real v3.2.x server during development.
-Each is marked with a `TODO(paperless-api)` comment in the code; check these
-against your server once it's running, per CLAUDE.md's clean-room/no-guessing
-policy:
+Most of the Paperless-ngx API shape has now been verified against a real
+v3.2.x server (tags incl. `is_inbox_tag`, custom field `data_type` values and
+their monetary/date/string value shapes, and the document list/detail shape)
+and is pinned by `tests/fixtures/real_*.json`. A couple of details remain
+unverified — marked with a `TODO(paperless-api)` comment in the code, per
+CLAUDE.md's clean-room/no-guessing policy:
 
-- **Monetary custom field formatting** (`paperless.py`) — falls back to
-  `str(value)`.
 - **`custom_field_query` grammar** (`find_by_custom_field` tool, `/expiring`,
   reminders) — implemented literally per Spec.md's own example
-  (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field *name*).
-- **Task response shape**, including whether `related_document` is present
-  on SUCCESS (upload flow).
+  (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field *name*); not
+  yet confirmed to actually filter correctly on a real server.
+- **Task response shape** after an upload, including whether
+  `related_document` is present on SUCCESS.
 - **`post_document/` response body** (bare UUID string vs. `{"task_id": ...}`)
-  — both are handled.
+  — both are handled, neither confirmed.
 - **`tags__id__in` filter** (`/inbox`) and the bulk-edit `modify_tags`
   parameter shape (the "✅ Done" button).
 
-Everything else is tested against fixtures modeled on the public API docs
-(`tests/fixtures/`), with no real network calls in the test suite.
+Everything else is tested against fixtures modeled on the public API docs or
+pinned to real server responses (`tests/fixtures/`), with no real network
+calls in the test suite.
 
 ## Out of scope (v1)
 
