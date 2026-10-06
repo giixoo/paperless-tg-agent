@@ -1,0 +1,17 @@
+{
+  "id": 412,
+  "correspondent": 20,
+  "document_type": 10,
+  "title": "Car insurance 2026",
+  "content": "Insurance policy for the car seat, valid until 14.12.2026. Full text follows...",
+  "tags": [1, 4],
+  "created": "2026-01-14T10:00:00+01:00",
+  "modified": "2026-01-14T10:00:00+01:00",
+  "added": "2026-01-14T10:00:00+01:00",
+  "original_file_name": "car_insurance_2026.pdf",
+  "custom_fields": [
+    {"field": 30, "value": "2026-12-14"}
+  ],
+  "notes": [],
+  "page_count": 3
+}

@@ -1,0 +1,9 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {"id": 10, "name": "Insurance policy", "document_count": 3},
+    {"id": 11, "name": "Invoice", "document_count": 5}
+  ]
+}

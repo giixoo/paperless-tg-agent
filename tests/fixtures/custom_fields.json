@@ -1,0 +1,10 @@
+{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {"id": 30, "name": "Expires", "data_type": "date"},
+    {"id": 31, "name": "Policy / Doc number", "data_type": "string"},
+    {"id": 32, "name": "Amount", "data_type": "monetary"}
+  ]
+}

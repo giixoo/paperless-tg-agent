@@ -1,0 +1,11 @@
+{
+  "count": 4,
+  "next": null,
+  "previous": null,
+  "results": [
+    {"id": 1, "name": "Insurance", "slug": "insurance", "colour": 1, "is_inbox_tag": false, "document_count": 3},
+    {"id": 2, "name": "Inbox", "slug": "inbox", "colour": 2, "is_inbox_tag": true, "document_count": 1},
+    {"id": 3, "name": "Archicom", "slug": "archicom", "colour": 3, "is_inbox_tag": false, "document_count": 2},
+    {"id": 4, "name": "gpt-processed", "slug": "gpt-processed", "colour": 4, "is_inbox_tag": false, "document_count": 50}
+  ]
+}

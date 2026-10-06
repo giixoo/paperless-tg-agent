@@ -1,0 +1,9 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {"id": 20, "name": "PZU", "document_count": 3},
+    {"id": 21, "name": "Archicom", "document_count": 2}
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 500,
+      "correspondent": 21,
+      "document_type": 11,
+      "title": "Archicom invoice March",
+      "content": "",
+      "tags": [3],
+      "created": "2026-03-01T09:00:00+01:00",
+      "modified": "2026-03-01T09:00:00+01:00",
+      "added": "2026-03-01T09:00:00+01:00",
+      "original_file_name": "invoice_march.pdf",
+      "custom_fields": [],
+      "notes": []
+    },
+    {
+      "id": 412,
+      "correspondent": 20,
+      "document_type": 10,
+      "title": "Car insurance 2026",
+      "content": "",
+      "tags": [1, 4],
+      "created": "2026-01-14T10:00:00+01:00",
+      "modified": "2026-01-14T10:00:00+01:00",
+      "added": "2026-01-14T10:00:00+01:00",
+      "original_file_name": "car_insurance_2026.pdf",
+      "custom_fields": [{"field": 30, "value": "2026-12-14"}],
+      "notes": []
+    }
+  ]
+}
