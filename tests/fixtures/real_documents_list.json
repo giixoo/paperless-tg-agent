@@ -1,0 +1,42 @@
+{
+  "count": 464,
+  "next": "http://localhost:8000/api/documents/?page=2&page_size=1",
+  "previous": null,
+  "results": [
+    {
+      "id": 1159,
+      "correspondent": 20,
+      "document_type": 3,
+      "storage_path": null,
+      "title": "Implant information",
+      "content": "sample ocr text",
+      "tags": [2],
+      "created": "2026-10-04",
+      "created_date": "2026-10-04",
+      "modified": "2026-10-04T15:15:09.823496+02:00",
+      "added": "2026-10-04T15:01:44.722290+02:00",
+      "deleted_at": null,
+      "archive_serial_number": null,
+      "original_file_name": "photo_20261004_130125.jpg",
+      "archived_file_name": "2026-10-04 Olympia dent Implant information.pdf",
+      "duplicate_documents": [],
+      "owner": 6,
+      "user_can_change": true,
+      "is_shared_by_requester": false,
+      "notes": [],
+      "custom_fields": [],
+      "page_count": null,
+      "mime_type": "image/jpeg",
+      "root_document": null,
+      "versions": [
+        {
+          "id": 1159,
+          "added": "2026-10-04T13:01:44.722290Z",
+          "version_label": null,
+          "checksum": "d4d33ce389b3bdab657c2755ca3a69e1e8439fcf9766927f8e649522ed9dd6f0",
+          "is_root": true
+        }
+      ]
+    }
+  ]
+}

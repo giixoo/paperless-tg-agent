@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 import httpx
@@ -87,6 +88,34 @@ async def test_recent_documents_orders_by_created_desc(
     request = route.calls.last.request
     assert request.url.params["ordering"] == "-created"
     assert request.url.params["page_size"] == "2"
+
+
+async def test_parses_real_server_document_list_response(
+    client: PaperlessClient,
+    mock_taxonomy: None,
+    respx_mock: respx.MockRouter,
+    load_fixture: Callable[[str], dict[str, Any]],
+) -> None:
+    """Pinned against a real GET /api/documents/?page_size=1 response
+    (Paperless-ngx, pasted by the user from a live server), to catch any
+    drift between our assumptions and the actual API shape."""
+    respx_mock.get("http://paperless.test/api/documents/").respond(
+        json=load_fixture("real_documents_list.json")
+    )
+
+    docs = await client.recent_documents(limit=1)
+
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.id == 1159
+    assert doc.title == "Implant information"
+    assert doc.created == date(2026, 10, 4)
+    assert doc.correspondent == "PZU"  # id 20, per correspondents.json fixture
+    assert doc.tags == ["Inbox"]  # tag id 2, per tags.json fixture
+    assert doc.custom_fields == {}
+    assert doc.notes is None
+    assert doc.original_file_name == "photo_20261004_130125.jpg"
+    assert doc.page_count is None
 
 
 async def test_get_json_retries_on_5xx_then_succeeds(
