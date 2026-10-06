@@ -40,6 +40,8 @@ async def test_search_documents_resolves_names_and_strips_hidden_tags(
     assert doc.document_type == "Insurance policy"
     # "gpt-processed" (tag id 4) matches HIDDEN_TAG_PREFIXES default ("gpt") and must not appear
     assert doc.tags == ["Insurance"]
+    # tag_ids is raw/unfiltered - the hidden tag id is still there for the AI menu
+    assert doc.tag_ids == [1, 4]
     assert doc.custom_fields == {"Expires": "14.12.2026"}
     assert doc.snippet is not None and "14.12.2026" in doc.snippet
 
@@ -289,10 +291,19 @@ async def test_inbox_tag_ids_filters_hidden_and_non_inbox_tags(
     assert ids == [2]
 
 
+async def test_hidden_tags_returns_only_hidden_prefixed_tags(
+    client: PaperlessClient, mock_taxonomy: None, respx_mock: respx.MockRouter
+) -> None:
+    tags = await client.taxonomy.hidden_tags()
+
+    assert [t.name for t in tags] == ["gpt-processed"]
+
+
 async def test_list_by_tag_ids_returns_empty_for_no_tags(client: PaperlessClient) -> None:
-    docs = await client.list_by_tag_ids([])
+    docs, total = await client.list_by_tag_ids([])
 
     assert docs == []
+    assert total == 0
 
 
 async def test_list_by_tag_ids_queries_tags_id_in(
@@ -305,29 +316,31 @@ async def test_list_by_tag_ids_queries_tags_id_in(
         json=load_fixture("documents_recent.json")
     )
 
-    docs = await client.list_by_tag_ids([1, 2], limit=10)
+    docs, total = await client.list_by_tag_ids([1, 2], page=2, limit=10)
 
     assert len(docs) == 2
+    assert total == 2
     request = route.calls.last.request
     assert request.url.params["tags__id__in"] == "1,2"
+    assert request.url.params["page"] == "2"
     assert request.url.params["page_size"] == "10"
 
 
-async def test_bulk_remove_tags_noop_without_tags_or_documents(
+async def test_bulk_modify_tags_noop_without_tags_or_documents(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
-    await client.bulk_remove_tags([], [1])
-    await client.bulk_remove_tags([412], [])
+    await client.bulk_modify_tags([], remove_tags=[1])
+    await client.bulk_modify_tags([412])
 
     assert respx_mock.calls.call_count == 0
 
 
-async def test_bulk_remove_tags_posts_modify_tags(
+async def test_bulk_modify_tags_posts_remove(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
     route = respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(json="OK")
 
-    await client.bulk_remove_tags([412], [2])
+    await client.bulk_modify_tags([412], remove_tags=[2])
 
     request = route.calls.last.request
     body = json.loads(request.content)
@@ -338,13 +351,58 @@ async def test_bulk_remove_tags_posts_modify_tags(
     }
 
 
-async def test_bulk_remove_tags_raises_on_error(
+async def test_bulk_modify_tags_posts_add(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(json="OK")
+
+    await client.bulk_modify_tags([412], add_tags=[3])
+
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body == {
+        "documents": [412],
+        "method": "modify_tags",
+        "parameters": {"add_tags": [3], "remove_tags": []},
+    }
+
+
+async def test_bulk_modify_tags_raises_on_error(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
     respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(status_code=400)
 
     with pytest.raises(PaperlessError):
-        await client.bulk_remove_tags([412], [2])
+        await client.bulk_modify_tags([412], remove_tags=[2])
+
+
+async def test_update_document_patches_fields(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.patch("http://paperless.test/api/documents/412/").respond(json={"id": 412})
+
+    await client.update_document(412, title="New title", correspondent=20)
+
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body == {"title": "New title", "correspondent": 20}
+
+
+async def test_update_document_noop_without_fields(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    await client.update_document(412)
+
+    assert respx_mock.calls.call_count == 0
+
+
+async def test_update_document_raises_on_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.patch("http://paperless.test/api/documents/412/").respond(status_code=400)
+
+    with pytest.raises(PaperlessError):
+        await client.update_document(412, title="x")
 
 
 def test_format_custom_field_value_monetary_matches_real_server() -> None:

@@ -17,6 +17,7 @@ from paperbot.budget import BudgetStore
 from paperbot.config import Settings
 from paperbot.paperless import PaperlessClient
 from paperbot.telegram.keyboards import SearchStateStore
+from paperbot.telegram.state import PendingInputStore
 
 DEPS_KEY = "deps"
 
@@ -29,6 +30,7 @@ class Deps:
     anthropic_client: AsyncAnthropic
     budget_store: BudgetStore
     agent_memory: AgentMemory
+    pending_input: PendingInputStore
 
 
 def get_deps(context: ContextTypes.DEFAULT_TYPE) -> Deps:

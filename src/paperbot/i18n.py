@@ -233,6 +233,96 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "📅 Przypomnienie o wygasających dokumentach",
         "ru": "📅 Напоминание о сроках действия документов",
     },
+    "menu_help": {
+        "en": "Show help",
+        "uk": "Показати довідку",
+        "pl": "Pokaż pomoc",
+        "ru": "Показать справку",
+    },
+    "menu_search": {
+        "en": "Search documents",
+        "uk": "Пошук документів",
+        "pl": "Szukaj dokumentów",
+        "ru": "Поиск документов",
+    },
+    "menu_recent": {
+        "en": "Recently added documents",
+        "uk": "Останні додані документи",
+        "pl": "Ostatnio dodane dokumenty",
+        "ru": "Последние добавленные документы",
+    },
+    "menu_doc": {
+        "en": "Show a document by id",
+        "uk": "Показати документ за id",
+        "pl": "Pokaż dokument po id",
+        "ru": "Показать документ по id",
+    },
+    "menu_inbox": {
+        "en": "Documents waiting in your inbox",
+        "uk": "Документи у вхідних",
+        "pl": "Dokumenty w skrzynce",
+        "ru": "Документы во входящих",
+    },
+    "menu_expiring": {
+        "en": "Documents expiring soon",
+        "uk": "Документи, що скоро закінчуються",
+        "pl": "Dokumenty wygasające wkrótce",
+        "ru": "Документы, срок которых скоро истекает",
+    },
+    "menu_usage": {
+        "en": "Today's AI usage",
+        "uk": "Витрати на AI сьогодні",
+        "pl": "Dzisiejsze zużycie AI",
+        "ru": "Расход AI за сегодня",
+    },
+    "menu_clear": {
+        "en": "Reset assistant memory",
+        "uk": "Очистити пам'ять асистента",
+        "pl": "Wyczyść pamięć asystenta",
+        "ru": "Очистить память ассистента",
+    },
+    "search_prompt": {
+        "en": "What would you like to search for?",
+        "uk": "Що шукати?",
+        "pl": "Czego szukać?",
+        "ru": "Что искать?",
+    },
+    "doc_prompt": {
+        "en": "Which document id?",
+        "uk": "Який id документа?",
+        "pl": "Jakie id dokumentu?",
+        "ru": "Какой id документа?",
+    },
+    "search_placeholder": {
+        "en": "Search query…",
+        "uk": "Пошуковий запит…",
+        "pl": "Zapytanie…",
+        "ru": "Поисковый запрос…",
+    },
+    "doc_placeholder": {
+        "en": "Document id…",
+        "uk": "Id документа…",
+        "pl": "Id dokumentu…",
+        "ru": "Id документа…",
+    },
+    "inbox_rename_prompt": {
+        "en": "Send the new title for #{id}:",
+        "uk": "Надішліть нову назву для #{id}:",
+        "pl": "Wyślij nowy tytuł dla #{id}:",
+        "ru": "Отправьте новое название для #{id}:",
+    },
+    "inbox_rename_placeholder": {
+        "en": "New title…",
+        "uk": "Нова назва…",
+        "pl": "Nowy tytuł…",
+        "ru": "Новое название…",
+    },
+    "inbox_renamed": {
+        "en": "Title updated.",
+        "uk": "Назву оновлено.",
+        "pl": "Tytuł zaktualizowany.",
+        "ru": "Название обновлено.",
+    },
 }
 
 

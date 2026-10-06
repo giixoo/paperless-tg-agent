@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -81,6 +81,10 @@ class Document:
     notes: str | None = None
     page_count: int | None = None
     snippet: str | None = None
+    tag_ids: list[int] = field(default_factory=list)
+    """Raw tag ids, unlike `tags` (names, with hidden-prefix tags filtered
+    out). Needed by the inbox "🤖 AI" menu to show/toggle workflow tags,
+    which are deliberately excluded from `tags`."""
 
 
 @dataclass(slots=True)
@@ -287,6 +291,13 @@ class TaxonomyCache:
         await self._ensure_loaded()
         return [t.id for t in self._tags.values() if t.is_inbox_tag and not self._is_hidden(t.name)]
 
+    async def hidden_tags(self) -> list[Tag]:
+        """Tags excluded everywhere else (search, the agent, the regular
+        Tags menu) — exposed only via the inbox "🤖 AI" menu for manual
+        workflow-tag triage."""
+        await self._ensure_loaded()
+        return [t for t in self._tags.values() if self._is_hidden(t.name)]
+
 
 class PaperlessClient:
     def __init__(self, settings: Settings, http_client: httpx.AsyncClient) -> None:
@@ -412,6 +423,7 @@ class PaperlessClient:
             notes=_extract_notes(raw.get("notes")),
             page_count=raw.get("page_count"),
             snippet=search_hit.get("highlights"),
+            tag_ids=list(raw.get("tags", [])),
         )
 
     async def search_documents(
@@ -463,39 +475,74 @@ class PaperlessClient:
         )
         return [await self._to_document(r) for r in data.get("results", [])]
 
-    async def list_by_tag_ids(self, tag_ids: list[int], limit: int = 50) -> list[Document]:
+    async def list_by_tag_ids(
+        self, tag_ids: list[int], *, page: int = 1, limit: int = 50
+    ) -> tuple[list[Document], int]:
         """List documents carrying any of the given tag ids (OR semantics).
 
-        TODO(paperless-api): `tags__id__in` is the standard django-filter "in"
-        lookup convention; SPEC §7 only confirms `tags__id__all` (AND).
-        Verify `tags__id__in` against a real server and fall back to
-        per-tag queries + merge if it's not supported.
+        `tags__id__in` confirmed working against a real v3.2.x server
+        (returned real inbox documents during live testing).
         """
         if not tag_ids:
-            return []
+            return [], 0
         data = await self._get_json(
             "/api/documents/",
-            params={"tags__id__in": ",".join(str(i) for i in tag_ids), "page_size": limit},
+            params={
+                "tags__id__in": ",".join(str(i) for i in tag_ids),
+                "page": page,
+                "page_size": limit,
+            },
         )
-        return [await self._to_document(r) for r in data.get("results", [])]
+        docs = [await self._to_document(r) for r in data.get("results", [])]
+        return docs, data.get("count", len(docs))
 
-    async def bulk_remove_tags(self, document_ids: list[int], tag_ids: list[int]) -> None:
-        """Remove `tag_ids` from `document_ids` via the bulk_edit endpoint.
+    async def bulk_modify_tags(
+        self,
+        document_ids: list[int],
+        *,
+        add_tags: list[int] | None = None,
+        remove_tags: list[int] | None = None,
+    ) -> None:
+        """Add/remove tags on `document_ids` via the bulk_edit endpoint.
 
         TODO(paperless-api): modeled on the documented bulk-edit "modify_tags"
         action (https://docs.paperless-ngx.com/api/#bulk-edit); verify the
         exact parameter shape against a real v3.2.x server.
         """
-        if not document_ids or not tag_ids:
+        add_tags = add_tags or []
+        remove_tags = remove_tags or []
+        if not document_ids or (not add_tags and not remove_tags):
             return
         await self._post_json(
             "/api/documents/bulk_edit/",
             {
                 "documents": document_ids,
                 "method": "modify_tags",
-                "parameters": {"add_tags": [], "remove_tags": tag_ids},
+                "parameters": {"add_tags": add_tags, "remove_tags": remove_tags},
             },
         )
+
+    async def update_document(self, doc_id: int, **fields: Any) -> None:
+        """Partially update a document (title/correspondent/document_type/...)
+        via `PATCH /api/documents/{id}/`.
+
+        TODO(paperless-api): standard DRF partial update, matching Paperless's
+        own web UI edit behavior, but not yet confirmed against a real server.
+        """
+        if not fields:
+            return
+        url = f"{str(self._settings.paperless_url).rstrip('/')}/api/documents/{doc_id}/"
+        try:
+            resp = await self._http.patch(
+                url, json=fields, headers=self._headers(), timeout=_DEFAULT_TIMEOUT
+            )
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error updating document #{doc_id}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"update_document #{doc_id} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
 
     async def _post_json(self, path: str, body: dict[str, Any]) -> Any:
         url = f"{str(self._settings.paperless_url).rstrip('/')}{path}"

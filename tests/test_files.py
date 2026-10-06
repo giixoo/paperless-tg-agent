@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,6 +24,7 @@ class FakePaperless:
     upload_error: Exception | None = None
     task_results: list[TaskResult | None] = field(default_factory=list)
     detail: Document | None = None
+    uploaded_filenames: list[str] = field(default_factory=list)
 
     async def download_document(self, doc_id: int, *, original: bool) -> tuple[bytes, str] | None:
         if self.download_error is not None:
@@ -33,6 +34,7 @@ class FakePaperless:
     async def upload_document(
         self, content: bytes, filename: str, *, title: str | None = None
     ) -> str:
+        self.uploaded_filenames.append(filename)
         if self.upload_error is not None:
             raise self.upload_error
         return self.upload_task_id
@@ -69,6 +71,7 @@ def make_context(settings: Settings, paperless: FakePaperless) -> MagicMock:
         anthropic_client=MagicMock(),
         budget_store=MagicMock(),
         agent_memory=MagicMock(),
+        pending_input=MagicMock(),
     )
     context.application.bot_data = {DEPS_KEY: deps}
     context.bot.send_chat_action = AsyncMock()
@@ -83,9 +86,27 @@ def make_upload_update(
     update.message.document.file_id = "file-123"
     update.message.document.file_unique_id = "uniq-123"
     update.message.document.file_name = filename
+    update.message.document.mime_type = "application/pdf"
     update.message.photo = []
     update.message.caption = caption
     update.message.media_group_id = media_group_id
+    update.message.date = datetime(2026, 10, 6, 20, 14, 36, tzinfo=UTC)
+    update.message.chat_id = 42
+    update.message.reply_text = AsyncMock()
+    return update
+
+
+def make_photo_update() -> MagicMock:
+    update = MagicMock()
+    update.effective_user.language_code = "en"
+    update.message.document = None
+    largest = MagicMock()
+    largest.file_id = "photo-file-id"
+    largest.file_unique_id = "AQADpRBrGzLCKVJ"
+    update.message.photo = [largest]
+    update.message.caption = None
+    update.message.media_group_id = None
+    update.message.date = datetime(2026, 10, 6, 20, 14, 36, tzinfo=UTC)
     update.message.chat_id = 42
     update.message.reply_text = AsyncMock()
     return update
@@ -155,6 +176,41 @@ async def test_send_document_to_chat_handles_paperless_error() -> None:
 
 
 # --- upload_handler -----------------------------------------------------------
+
+
+async def test_upload_handler_photo_gets_friendly_filename(settings: Settings) -> None:
+    update = make_photo_update()
+    paperless = FakePaperless(
+        task_results=[TaskResult(status="SUCCESS", result="ok", related_document=412)],
+        detail=make_doc(),
+    )
+    context = make_context(settings, paperless)
+    context.bot.get_file = AsyncMock(
+        return_value=MagicMock(download_as_bytearray=AsyncMock(return_value=bytearray(b"bytes")))
+    )
+
+    await files.upload_handler(update, context)
+
+    assert paperless.uploaded_filenames == ["tg-upload-20261006-221436.jpg"]
+
+
+async def test_upload_handler_document_without_filename_gets_friendly_filename(
+    settings: Settings,
+) -> None:
+    update = make_upload_update(filename="")
+    update.message.document.file_name = None
+    paperless = FakePaperless(
+        task_results=[TaskResult(status="SUCCESS", result="ok", related_document=412)],
+        detail=make_doc(),
+    )
+    context = make_context(settings, paperless)
+    context.bot.get_file = AsyncMock(
+        return_value=MagicMock(download_as_bytearray=AsyncMock(return_value=bytearray(b"bytes")))
+    )
+
+    await files.upload_handler(update, context)
+
+    assert paperless.uploaded_filenames == ["tg-upload-20261006-221436.pdf"]
 
 
 async def test_upload_handler_success(settings: Settings) -> None:

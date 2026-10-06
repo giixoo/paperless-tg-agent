@@ -6,9 +6,11 @@ import asyncio
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from telegram import Bot, Update
+from telegram import Bot, Message, Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
@@ -24,6 +26,23 @@ TASK_POLL_INTERVAL_SECONDS = 3.0
 TASK_POLL_TIMEOUT_SECONDS = 300.0
 
 _DUPLICATE_ID_RE = re.compile(r"#(\d+)")
+
+_MIME_EXTENSIONS = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/heic": "heic",
+}
+
+
+def _friendly_filename(message: Message, *, ext: str, tz_name: str) -> str:
+    """A human-readable fallback filename for uploads with no real name
+    (e.g. Telegram photos), instead of Telegram's opaque file_unique_id.
+    """
+    tz = ZoneInfo(tz_name)
+    when = message.date.astimezone(tz) if message.date else datetime.now(tz)
+    return f"tg-upload-{when:%Y%m%d-%H%M%S}.{ext}"
 
 
 def _lang(update: Update) -> str:
@@ -110,21 +129,26 @@ async def upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if message is None:
         return
     lang = _lang(update)
+    deps = get_deps(context)
+    tz_name = deps.settings.tz
 
     if message.document is not None:
         file_id = message.document.file_id
-        filename = message.document.file_name or f"document_{message.document.file_unique_id}"
+        if message.document.file_name:
+            filename = message.document.file_name
+        else:
+            ext = _MIME_EXTENSIONS.get(message.document.mime_type or "", "bin")
+            filename = _friendly_filename(message, ext=ext, tz_name=tz_name)
     elif message.photo:
         largest = message.photo[-1]
         file_id = largest.file_id
-        filename = f"{largest.file_unique_id}.jpg"
+        filename = _friendly_filename(message, ext="jpg", tz_name=tz_name)
     else:
         return
 
     if message.media_group_id:
         logger.info("Upload is part of media group %s", message.media_group_id)
 
-    deps = get_deps(context)
     await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_DOCUMENT)
 
     tg_file = await context.bot.get_file(file_id)
@@ -145,6 +169,16 @@ async def upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if result is None:
         await message.reply_text(t("upload_timeout", lang))
         return
+
+    # Diagnostic (SPEC §4.4 duplicate-detection relies on this): log the raw
+    # task outcome so a "no duplicate warning" report can be root-caused from
+    # real data instead of guessed at.
+    logger.info(
+        "upload task finished: status=%s related_document=%s result=%r",
+        result.status,
+        result.related_document,
+        (result.result or "")[:300],
+    )
 
     if result.status == "SUCCESS":
         doc_id = result.related_document

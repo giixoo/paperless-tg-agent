@@ -5,19 +5,14 @@ from datetime import date, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from telegram import ForceReply
+
 from paperbot.config import Settings
 from paperbot.paperless import Document
 from paperbot.telegram import commands
 from paperbot.telegram.deps import DEPS_KEY, Deps
 from paperbot.telegram.keyboards import SearchStateStore
-
-
-class FakeTaxonomy:
-    def __init__(self, inbox_ids: list[int] | None = None) -> None:
-        self._inbox_ids = inbox_ids or []
-
-    async def inbox_tag_ids(self) -> list[int]:
-        return self._inbox_ids
+from paperbot.telegram.state import PendingInputStore
 
 
 @dataclass
@@ -25,13 +20,7 @@ class FakePaperless:
     search_results: tuple[list[Document], int] = field(default_factory=lambda: ([], 0))
     recent_results: list[Document] = field(default_factory=list)
     detail: Document | None = None
-    inbox_docs: list[Document] = field(default_factory=list)
-    inbox_tag_ids: list[int] = field(default_factory=lambda: [2])
     custom_field_results: list[Document] = field(default_factory=list)
-    bulk_remove_calls: list[tuple[list[int], list[int]]] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.taxonomy = FakeTaxonomy(self.inbox_tag_ids)
 
     async def search_documents(self, query: str, **kwargs: Any) -> tuple[list[Document], int]:
         return self.search_results
@@ -41,12 +30,6 @@ class FakePaperless:
 
     async def get_document(self, doc_id: int) -> Document | None:
         return self.detail
-
-    async def list_by_tag_ids(self, tag_ids: list[int], limit: int = 50) -> list[Document]:
-        return self.inbox_docs
-
-    async def bulk_remove_tags(self, document_ids: list[int], tag_ids: list[int]) -> None:
-        self.bulk_remove_calls.append((document_ids, tag_ids))
 
     async def find_by_custom_field_query(self, query_json: str, limit: int) -> list[Document]:
         return self.custom_field_results
@@ -66,18 +49,22 @@ def make_doc(**overrides: Any) -> Document:
     return Document(**defaults)
 
 
-def make_update(args_text: str | None = None) -> MagicMock:
+def make_update(chat_id: int = 999) -> MagicMock:
     update = MagicMock()
     update.effective_user.language_code = "en"
+    update.effective_chat.id = chat_id
+    update.message.chat_id = chat_id
     update.message.reply_text = AsyncMock()
     return update
 
 
-def make_callback_update(data: str) -> MagicMock:
+def make_callback_update(data: str, chat_id: int = 999) -> MagicMock:
     update = MagicMock()
     update.effective_user.language_code = "en"
+    update.effective_chat.id = chat_id
     update.callback_query.data = data
     update.callback_query.answer = AsyncMock()
+    update.callback_query.edit_message_text = AsyncMock()
     update.callback_query.edit_message_reply_markup = AsyncMock()
     return update
 
@@ -87,6 +74,8 @@ def make_context(
 ) -> MagicMock:
     context = MagicMock()
     context.args = args or []
+    context.bot.send_message = AsyncMock()
+    context.bot.send_chat_action = AsyncMock()
     deps = Deps(
         settings=settings,
         paperless=paperless,  # type: ignore[arg-type]
@@ -94,6 +83,7 @@ def make_context(
         anthropic_client=MagicMock(),
         budget_store=MagicMock(),
         agent_memory=MagicMock(),
+        pending_input=PendingInputStore(),
     )
     context.application.bot_data = {DEPS_KEY: deps}
     return context
@@ -109,13 +99,21 @@ async def test_help_command_replies_with_help_text(settings: Settings) -> None:
     assert "search" in update.message.reply_text.call_args[0][0]
 
 
-async def test_search_command_without_query_replies_usage(settings: Settings) -> None:
+# --- /search --------------------------------------------------------------
+
+
+async def test_search_command_without_query_prompts_for_input(settings: Settings) -> None:
     update = make_update()
     context = make_context(settings, FakePaperless(), args=[])
 
     await commands.search_command(update, context)
 
-    update.message.reply_text.assert_awaited_once_with("Usage: /search <text>")
+    update.message.reply_text.assert_awaited_once()
+    args, kwargs = update.message.reply_text.call_args
+    assert args[0] == "What would you like to search for?"
+    assert "reply_markup" in kwargs
+    deps = context.application.bot_data[DEPS_KEY]
+    assert deps.pending_input.pop(update.message.chat_id) == "search"
 
 
 async def test_search_command_no_results(settings: Settings) -> None:
@@ -125,10 +123,10 @@ async def test_search_command_no_results(settings: Settings) -> None:
 
     await commands.search_command(update, context)
 
-    update.message.reply_text.assert_awaited_once_with("No documents found.")
+    context.bot.send_message.assert_awaited_once_with(update.message.chat_id, "No documents found.")
 
 
-async def test_search_command_formats_results(settings: Settings) -> None:
+async def test_search_command_sends_one_card_per_result(settings: Settings) -> None:
     update = make_update()
     doc = make_doc()
     paperless = FakePaperless(search_results=([doc], 1))
@@ -136,20 +134,121 @@ async def test_search_command_formats_results(settings: Settings) -> None:
 
     await commands.search_command(update, context)
 
-    text = update.message.reply_text.call_args[0][0]
-    assert "#412" in text
-    assert "Car insurance 2026" in text
-    assert "14.01.2026" in text
-    assert "PZU" in text
+    context.bot.send_message.assert_awaited_once()
+    args, kwargs = context.bot.send_message.call_args
+    assert args[0] == update.message.chat_id
+    assert "<b>#412 Car insurance 2026</b>" in args[1]
+    assert "PZU" in args[1]
+    assert "🏷 Insurance" in args[1]
+    assert kwargs["parse_mode"] is not None
+    assert "reply_markup" in kwargs
 
 
-async def test_doc_command_without_id_replies_usage(settings: Settings) -> None:
+async def test_search_command_sends_pagination_message_when_multiple_pages(
+    settings: Settings,
+) -> None:
+    update = make_update()
+    doc = make_doc()
+    paperless = FakePaperless(search_results=([doc], 10))  # SEARCH_PAGE_SIZE=5 -> 2 pages
+    context = make_context(settings, paperless, args=["insurance"])
+
+    await commands.search_command(update, context)
+
+    assert context.bot.send_message.await_count == 2
+    page_text = context.bot.send_message.await_args_list[1].args[1]
+    assert "1" in page_text and "2" in page_text
+
+
+async def test_search_page_callback_sends_next_page_as_new_messages(settings: Settings) -> None:
+    update = make_update()
+    doc = make_doc()
+    paperless = FakePaperless(search_results=([doc], 10))
+    context = make_context(settings, paperless, args=["insurance"])
+    await commands.search_command(update, context)  # page 1: seeds the SearchStateStore
+    context.bot.send_message.reset_mock()
+
+    deps = context.application.bot_data[DEPS_KEY]
+    token = next(iter(deps.search_store._states))  # only one token exists at this point
+    page_update = make_callback_update(f"sp:{token}:2")
+
+    await commands.search_page_callback(page_update, context)
+
+    page_update.callback_query.answer.assert_awaited_once()
+    # 1 doc card + 1 pagination-control message (still sent since total_pages > 1)
+    assert context.bot.send_message.await_count == 2
+
+
+async def test_search_expand_callback_shows_full_card(settings: Settings) -> None:
+    update = make_callback_update("xd:412")
+    doc = make_doc()
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.search_expand_callback(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    args, kwargs = update.callback_query.edit_message_text.call_args
+    assert "Open in Paperless" in args[0]
+    assert "▲ Collapse" in [b.text for row in kwargs["reply_markup"].inline_keyboard for b in row]
+
+
+async def test_search_collapse_callback_shows_summary_card(settings: Settings) -> None:
+    update = make_callback_update("cd:412")
+    doc = make_doc()
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.search_collapse_callback(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    args, kwargs = update.callback_query.edit_message_text.call_args
+    assert "Open in Paperless" not in args[0]
+    assert "▼ Details" in [b.text for row in kwargs["reply_markup"].inline_keyboard for b in row]
+
+
+async def test_text_handler_continues_pending_search(settings: Settings) -> None:
+    chat_id = 555
+    search_update = make_update(chat_id=chat_id)
+    paperless = FakePaperless()
+    context = make_context(settings, paperless, args=[])
+    await commands.search_command(search_update, context)
+
+    doc = make_doc()
+    paperless.search_results = ([doc], 1)
+    text_update = make_update(chat_id=chat_id)
+    text_update.message.text = "insurance"
+
+    await commands.text_handler(text_update, context)
+
+    context.bot.send_message.assert_awaited_once()
+    deps = context.application.bot_data[DEPS_KEY]
+    assert deps.pending_input.pop(chat_id) is None
+
+
+async def test_search_command_prompt_uses_force_reply(settings: Settings) -> None:
+    update = make_update()
+    context = make_context(settings, FakePaperless(), args=[])
+
+    await commands.search_command(update, context)
+
+    kwargs = update.message.reply_text.call_args.kwargs
+    assert isinstance(kwargs["reply_markup"], ForceReply)
+
+
+# --- /doc -------------------------------------------------------------------
+
+
+async def test_doc_command_without_id_prompts_for_input(settings: Settings) -> None:
     update = make_update()
     context = make_context(settings, FakePaperless(), args=[])
 
     await commands.doc_command(update, context)
 
-    update.message.reply_text.assert_awaited_once_with("Usage: /doc <id>")
+    update.message.reply_text.assert_awaited_once()
+    args, kwargs = update.message.reply_text.call_args
+    assert args[0] == "Which document id?"
+    deps = context.application.bot_data[DEPS_KEY]
+    assert deps.pending_input.pop(update.message.chat_id) == "doc"
 
 
 async def test_doc_command_not_found(settings: Settings) -> None:
@@ -170,12 +269,48 @@ async def test_doc_command_renders_card(settings: Settings) -> None:
 
     await commands.doc_command(update, context)
 
-    text = update.message.reply_text.call_args[0][0]
-    assert "#412 Car insurance 2026" in text
+    args, kwargs = update.message.reply_text.call_args
+    text = args[0]
+    assert "<b>#412 Car insurance 2026</b>" in text
     assert "Created: 14.01.2026" in text
     assert "Correspondent: PZU" in text
     assert "Expires: 14.12.2026" in text
     assert "Open in Paperless" in text
+    assert kwargs["parse_mode"] is not None
+    assert "reply_markup" in kwargs
+
+
+async def test_text_handler_continues_pending_doc(settings: Settings) -> None:
+    chat_id = 333
+    doc_update = make_update(chat_id=chat_id)
+    paperless = FakePaperless(detail=make_doc())
+    context = make_context(settings, paperless, args=[])
+    await commands.doc_command(doc_update, context)
+
+    text_update = make_update(chat_id=chat_id)
+    text_update.message.text = "412"
+
+    await commands.text_handler(text_update, context)
+
+    text_update.message.reply_text.assert_awaited_once()
+    assert "<b>#412" in text_update.message.reply_text.call_args[0][0]
+
+
+async def test_text_handler_pending_doc_with_invalid_input(settings: Settings) -> None:
+    chat_id = 334
+    doc_update = make_update(chat_id=chat_id)
+    context = make_context(settings, FakePaperless(), args=[])
+    await commands.doc_command(doc_update, context)
+
+    text_update = make_update(chat_id=chat_id)
+    text_update.message.text = "not-a-number"
+
+    await commands.text_handler(text_update, context)
+
+    text_update.message.reply_text.assert_awaited_once_with("Usage: /doc <id>")
+
+
+# --- /recent ----------------------------------------------------------------
 
 
 async def test_recent_command_defaults_to_ten(settings: Settings) -> None:
@@ -186,7 +321,7 @@ async def test_recent_command_defaults_to_ten(settings: Settings) -> None:
     await commands.recent_command(update, context)
 
     update.message.reply_text.assert_awaited_once()
-    assert "#412" in update.message.reply_text.call_args[0][0]
+    assert "<b>#412" in update.message.reply_text.call_args[0][0]
 
 
 async def test_recent_command_clamps_n(settings: Settings) -> None:
@@ -199,51 +334,7 @@ async def test_recent_command_clamps_n(settings: Settings) -> None:
     update.message.reply_text.assert_awaited_once_with("No documents found.")
 
 
-async def test_inbox_command_no_inbox_tags_reports_no_results(settings: Settings) -> None:
-    update = make_update()
-    paperless = FakePaperless(inbox_tag_ids=[])
-    context = make_context(settings, paperless)
-
-    await commands.inbox_command(update, context)
-
-    update.message.reply_text.assert_awaited_once_with("No documents found.")
-
-
-async def test_inbox_command_sends_one_message_per_doc_with_done_button(
-    settings: Settings,
-) -> None:
-    update = make_update()
-    docs = [make_doc(id=1, title="A"), make_doc(id=2, title="B")]
-    paperless = FakePaperless(inbox_docs=docs)
-    context = make_context(settings, paperless)
-
-    await commands.inbox_command(update, context)
-
-    assert update.message.reply_text.await_count == 2
-    first_kwargs = update.message.reply_text.await_args_list[0].kwargs
-    assert "reply_markup" in first_kwargs
-
-
-async def test_inbox_done_callback_removes_tags_and_clears_keyboard(settings: Settings) -> None:
-    update = make_callback_update("ib:412")
-    paperless = FakePaperless(inbox_tag_ids=[2])
-    context = make_context(settings, paperless)
-
-    await commands.inbox_done_callback(update, context)
-
-    assert paperless.bulk_remove_calls == [([412], [2])]
-    update.callback_query.answer.assert_awaited_once_with("Removed from inbox.")
-    update.callback_query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
-
-
-async def test_inbox_done_callback_ignores_malformed_data(settings: Settings) -> None:
-    update = make_callback_update("sp:x:1")
-    paperless = FakePaperless()
-    context = make_context(settings, paperless)
-
-    await commands.inbox_done_callback(update, context)
-
-    assert paperless.bulk_remove_calls == []
+# --- /expiring ---------------------------------------------------------------
 
 
 async def test_expiring_command_no_results(settings: Settings) -> None:
@@ -275,7 +366,7 @@ async def test_expiring_command_sorts_and_formats_relative_days(settings: Settin
     await commands.expiring_command(update, context)
 
     text = update.message.reply_text.call_args[0][0]
-    assert text.index("#1 · Soon") < text.index("#2 · Later")
+    assert text.index("<b>#1 Soon</b>") < text.index("<b>#2 Later</b>")
     assert "in 5 days" in text
     assert "in 20 days" in text
 
