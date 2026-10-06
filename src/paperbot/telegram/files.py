@@ -14,7 +14,7 @@ from telegram.ext import Application, CallbackQueryHandler, ContextTypes, Messag
 
 from paperbot.i18n import resolve_language, t
 from paperbot.paperless import PaperlessClient, PaperlessError, TaskResult
-from paperbot.telegram.commands import get_deps
+from paperbot.telegram.deps import get_deps
 from paperbot.telegram.keyboards import decode_download, doc_card_keyboard
 
 logger = logging.getLogger(__name__)

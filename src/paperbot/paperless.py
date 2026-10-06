@@ -43,18 +43,21 @@ class Tag:
     id: int
     name: str
     is_inbox_tag: bool = False
+    document_count: int | None = None
 
 
 @dataclass(slots=True)
 class DocumentType:
     id: int
     name: str
+    document_count: int | None = None
 
 
 @dataclass(slots=True)
 class Correspondent:
     id: int
     name: str
+    document_count: int | None = None
 
 
 @dataclass(slots=True)
@@ -94,6 +97,17 @@ def _parse_created(value: str | None) -> date | None:
         return datetime.fromisoformat(value).date()
     except ValueError:
         return None
+
+
+def _extract_notes(value: object) -> str | None:
+    """Paperless's `notes` field is a list of {"note": "text", ...} objects
+    (on the document detail endpoint; often absent from list/search results),
+    not a plain string. Join their text, newest first as returned by the API.
+    """
+    if not isinstance(value, list) or not value:
+        return None
+    texts = [n["note"] for n in value if isinstance(n, dict) and isinstance(n.get("note"), str)]
+    return "\n".join(texts) if texts else None
 
 
 def _format_custom_field_value(value: object, data_type: str) -> str:
@@ -142,14 +156,25 @@ class TaxonomyCache:
                 self._client.list_custom_fields_raw(),
             )
             self._tags = {
-                t["id"]: Tag(id=t["id"], name=t["name"], is_inbox_tag=bool(t.get("is_inbox_tag")))
+                t["id"]: Tag(
+                    id=t["id"],
+                    name=t["name"],
+                    is_inbox_tag=bool(t.get("is_inbox_tag")),
+                    document_count=t.get("document_count"),
+                )
                 for t in tags
             }
             self._document_types = {
-                t["id"]: DocumentType(id=t["id"], name=t["name"]) for t in types_
+                t["id"]: DocumentType(
+                    id=t["id"], name=t["name"], document_count=t.get("document_count")
+                )
+                for t in types_
             }
             self._correspondents = {
-                c["id"]: Correspondent(id=c["id"], name=c["name"]) for c in correspondents
+                c["id"]: Correspondent(
+                    id=c["id"], name=c["name"], document_count=c.get("document_count")
+                )
+                for c in correspondents
             }
             self._custom_fields = {
                 f["id"]: CustomFieldDef(id=f["id"], name=f["name"], data_type=f["data_type"])
@@ -364,7 +389,7 @@ class PaperlessClient:
             custom_fields=custom_fields,
             original_file_name=raw.get("original_file_name"),
             content=raw.get("content"),
-            notes=raw.get("notes") if isinstance(raw.get("notes"), str) else None,
+            notes=_extract_notes(raw.get("notes")),
             page_count=raw.get("page_count"),
             snippet=search_hit.get("highlights"),
         )
@@ -400,6 +425,23 @@ class PaperlessClient:
     async def recent_documents(self, limit: int = 10) -> list[Document]:
         data = await self._get_json(
             "/api/documents/", params={"ordering": "-created", "page_size": limit}
+        )
+        return [await self._to_document(r) for r in data.get("results", [])]
+
+    async def find_by_custom_field_query(
+        self, custom_field_query_json: str, limit: int
+    ) -> list[Document]:
+        """Filter documents by `custom_field_query` (SPEC §5.4/§7).
+
+        TODO(paperless-api): the exact `custom_field_query` grammar isn't
+        pinned down in the public docs beyond SPEC's own example
+        (`["Expires","range",["2026-10-06","2026-12-31"]]`, i.e. field NAME
+        rather than id). Implemented literally per that example; verify
+        against a real v3.2.x server and adjust if it expects field ids.
+        """
+        data = await self._get_json(
+            "/api/documents/",
+            params={"custom_field_query": custom_field_query_json, "page_size": limit},
         )
         return [await self._to_document(r) for r in data.get("results", [])]
 

@@ -169,6 +169,34 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "Plik jest za duży dla Telegrama. Otwórz go w Paperless:\n{link}",
         "ru": "Файл слишком большой для Telegram. Откройте его в Paperless:\n{link}",
     },
+    "budget_reached": {
+        "en": "Daily AI budget reached. Commands still work: "
+        "/search, /recent, /doc, /inbox, /expiring.",
+        "uk": "Денний бюджет AI витрачено. Команди працюють: "
+        "/search, /recent, /doc, /inbox, /expiring.",
+        "pl": "Dzienny budżet AI wykorzystany. Komendy wciąż działają: "
+        "/search, /recent, /doc, /inbox, /expiring.",
+        "ru": "Дневной бюджет AI исчерпан. Команды работают: "
+        "/search, /recent, /doc, /inbox, /expiring.",
+    },
+    "memory_cleared": {
+        "en": "Assistant memory cleared for this chat.",
+        "uk": "Пам'ять асистента для цього чату очищено.",
+        "pl": "Pamięć asystenta dla tego czatu wyczyszczona.",
+        "ru": "Память ассистента для этого чата очищена.",
+    },
+    "usage_today": {
+        "en": "Today: ${cost:.4f} / ${budget:.2f}",
+        "uk": "Сьогодні: ${cost:.4f} / ${budget:.2f}",
+        "pl": "Dzisiaj: ${cost:.4f} / ${budget:.2f}",
+        "ru": "Сегодня: ${cost:.4f} / ${budget:.2f}",
+    },
+    "usage_history_header": {
+        "en": "Last 7 days:",
+        "uk": "Останні 7 днів:",
+        "pl": "Ostatnie 7 dni:",
+        "ru": "Последние 7 дней:",
+    },
 }
 
 

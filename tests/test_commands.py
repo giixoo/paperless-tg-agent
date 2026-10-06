@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 from paperbot.config import Settings
 from paperbot.paperless import Document
 from paperbot.telegram import commands
+from paperbot.telegram.deps import DEPS_KEY, Deps
 from paperbot.telegram.keyboards import SearchStateStore
 
 
@@ -53,8 +54,15 @@ def make_context(
 ) -> MagicMock:
     context = MagicMock()
     context.args = args or []
-    deps = commands.Deps(settings=settings, paperless=paperless, search_store=SearchStateStore())  # type: ignore[arg-type]
-    context.application.bot_data = {commands.DEPS_KEY: deps}
+    deps = Deps(
+        settings=settings,
+        paperless=paperless,  # type: ignore[arg-type]
+        search_store=SearchStateStore(),
+        anthropic_client=MagicMock(),
+        budget_store=MagicMock(),
+        agent_memory=MagicMock(),
+    )
+    context.application.bot_data = {DEPS_KEY: deps}
     return context
 
 

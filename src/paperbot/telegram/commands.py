@@ -1,22 +1,31 @@
-"""/help /search /recent /doc command handlers (SPEC §4.2)."""
+"""/help /search /recent /doc /usage /clear command handlers + free-text
+agent routing (SPEC §4.2, §4.5)."""
 
 from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
 from datetime import date
-from typing import Any, cast
+from typing import Any
 
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.constants import ChatAction
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-from paperbot.config import Settings
+from paperbot.agent.agent import run_agent
 from paperbot.i18n import resolve_language, t
-from paperbot.paperless import Document, PaperlessClient, PaperlessError
+from paperbot.paperless import Document, PaperlessError
+from paperbot.telegram.deps import get_deps
+from paperbot.telegram.files import send_document_to_chat
 from paperbot.telegram.keyboards import (
     SearchState,
-    SearchStateStore,
     decode_search_page,
     doc_card_keyboard,
     search_results_keyboard,
@@ -27,19 +36,7 @@ logger = logging.getLogger(__name__)
 SEARCH_PAGE_SIZE = 5
 RECENT_DEFAULT = 10
 RECENT_MAX = 50
-
-DEPS_KEY = "deps"
-
-
-@dataclass(slots=True)
-class Deps:
-    settings: Settings
-    paperless: PaperlessClient
-    search_store: SearchStateStore
-
-
-def get_deps(context: ContextTypes.DEFAULT_TYPE) -> Deps:
-    return cast(Deps, context.application.bot_data[DEPS_KEY])
+USAGE_HISTORY_DAYS = 7
 
 
 def _lang(update: Update) -> str:
@@ -201,9 +198,81 @@ async def doc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    lang = _lang(update)
+    deps = get_deps(context)
+    today = await deps.budget_store.today_usage(deps.settings.tz)
+    lines = [t("usage_today", lang, cost=today.cost_usd, budget=deps.settings.daily_budget_usd)]
+
+    history = await deps.budget_store.last_n_days(USAGE_HISTORY_DAYS)
+    if history:
+        lines.append("")
+        lines.append(t("usage_history_header", lang))
+        lines.extend(f"{day.day}: ${day.cost_usd:.4f}" for day in history)
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    lang = _lang(update)
+    deps = get_deps(context)
+    deps.agent_memory.clear(update.message.chat_id)
+    await update.message.reply_text(t("memory_cleared", lang))
+
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route any non-command text message to the agent (SPEC §4.5)."""
+    message = update.message
+    if message is None or not message.text:
+        return
+    lang = _lang(update)
+    deps = get_deps(context)
+    chat_id = message.chat_id
+    public_url = str(deps.settings.paperless_public_url_or_default)
+
+    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+
+    async def _send_document_callback(doc_id: int) -> bool:
+        try:
+            await send_document_to_chat(
+                context.bot, chat_id, deps.paperless, public_url, doc_id, lang
+            )
+        except Exception:
+            logger.exception("send_document tool callback failed for #%d", doc_id)
+            return False
+        return True
+
+    try:
+        answer = await run_agent(
+            chat_id=chat_id,
+            user_text=message.text,
+            lang=lang,
+            anthropic_client=deps.anthropic_client,
+            settings=deps.settings,
+            paperless=deps.paperless,
+            budget_store=deps.budget_store,
+            memory=deps.agent_memory,
+            send_document_callback=_send_document_callback,
+        )
+    except Exception:
+        logger.exception("agent run failed")
+        await message.reply_text(t("generic_error", lang))
+        return
+
+    if answer:
+        await message.reply_text(answer)
+
+
 def register_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:
     application.add_handler(CommandHandler(["start", "help"], help_command))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("doc", doc_command))
+    application.add_handler(CommandHandler("usage", usage_command))
+    application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(CallbackQueryHandler(search_page_callback, pattern=r"^sp:"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))

@@ -67,6 +67,7 @@ async def test_get_document_returns_full_detail(
     assert doc is not None
     assert doc.page_count == 3
     assert doc.custom_fields == {"Expires": "14.12.2026"}
+    assert doc.notes == "Renewed early, cheaper rate."
 
 
 async def test_recent_documents_orders_by_created_desc(

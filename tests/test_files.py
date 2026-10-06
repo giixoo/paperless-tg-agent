@@ -9,7 +9,8 @@ import pytest
 
 from paperbot.config import Settings
 from paperbot.paperless import Document, PaperlessError, TaskResult
-from paperbot.telegram import commands, files
+from paperbot.telegram import files
+from paperbot.telegram.deps import DEPS_KEY, Deps
 from paperbot.telegram.keyboards import SearchStateStore
 
 PUBLIC_URL = "http://paperless.local:8000"
@@ -61,8 +62,15 @@ def make_doc(**overrides: Any) -> Document:
 
 def make_context(settings: Settings, paperless: FakePaperless) -> MagicMock:
     context = MagicMock()
-    deps = commands.Deps(settings=settings, paperless=paperless, search_store=SearchStateStore())  # type: ignore[arg-type]
-    context.application.bot_data = {commands.DEPS_KEY: deps}
+    deps = Deps(
+        settings=settings,
+        paperless=paperless,  # type: ignore[arg-type]
+        search_store=SearchStateStore(),
+        anthropic_client=MagicMock(),
+        budget_store=MagicMock(),
+        agent_memory=MagicMock(),
+    )
+    context.application.bot_data = {DEPS_KEY: deps}
     context.bot.send_chat_action = AsyncMock()
     return context
 
