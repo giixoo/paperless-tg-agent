@@ -359,8 +359,14 @@ class PaperlessClient:
         return _safe_json(resp, path)
 
     async def ping(self) -> bool:
+        """Check Paperless is reachable and returns JSON for an authenticated
+        request. Deliberately not bare `/api/`: confirmed against a real
+        v3.2.1 server that it 302-redirects to `schema/view/`, which then
+        406s against our versioned Accept header - `/api/documents/` is a
+        real, lightweight endpoint that's confirmed to just work.
+        """
         try:
-            await self._get_json("/api/")
+            await self._get_json("/api/documents/", params={"page_size": 1})
             return True
         except PaperlessError as exc:
             logger.warning("Paperless ping failed: %s", exc)

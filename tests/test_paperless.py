@@ -160,9 +160,19 @@ async def test_non_json_response_raises_paperless_error_not_json_decode_error(
 async def test_ping_returns_false_on_non_json_response(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
-    respx_mock.get("http://paperless.test/api/").respond(status_code=200, content=b"")
+    respx_mock.get("http://paperless.test/api/documents/").respond(status_code=200, content=b"")
 
     assert await client.ping() is False
+
+
+async def test_ping_returns_true_on_success(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("http://paperless.test/api/documents/").respond(
+        json={"count": 0, "next": None, "previous": None, "results": []}
+    )
+
+    assert await client.ping() is True
 
 
 async def test_download_document_uses_content_disposition_filename(
