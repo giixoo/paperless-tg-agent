@@ -16,7 +16,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 CALLBACK_SEARCH_PAGE = "sp"  # sp:<token>:<page>
 CALLBACK_DOWNLOAD = "dl"  # dl:<doc_id>
 CALLBACK_INBOX_DONE = "ib"  # ib:<doc_id>
-CALLBACK_CANCEL = "cx"  # cx (no payload)
 CALLBACK_SEARCH_EXPAND = "xd"  # xd:<doc_id>
 CALLBACK_SEARCH_COLLAPSE = "cd"  # cd:<doc_id>
 
@@ -136,10 +135,6 @@ def search_card_keyboard(doc_id: int, *, expanded: bool) -> InlineKeyboardMarkup
         else InlineKeyboardButton("▼ Details", callback_data=encode_search_expand(doc_id))
     )
     return InlineKeyboardMarkup([[download_button(doc_id), detail_button]])
-
-
-def cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=CALLBACK_CANCEL)]])
 
 
 def encode_inbox_done(doc_id: int) -> str:

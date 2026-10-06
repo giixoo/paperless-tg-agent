@@ -40,6 +40,8 @@ async def test_search_documents_resolves_names_and_strips_hidden_tags(
     assert doc.document_type == "Insurance policy"
     # "gpt-processed" (tag id 4) matches HIDDEN_TAG_PREFIXES default ("gpt") and must not appear
     assert doc.tags == ["Insurance"]
+    # tag_ids is raw/unfiltered - the hidden tag id is still there for the AI menu
+    assert doc.tag_ids == [1, 4]
     assert doc.custom_fields == {"Expires": "14.12.2026"}
     assert doc.snippet is not None and "14.12.2026" in doc.snippet
 
@@ -289,10 +291,19 @@ async def test_inbox_tag_ids_filters_hidden_and_non_inbox_tags(
     assert ids == [2]
 
 
+async def test_hidden_tags_returns_only_hidden_prefixed_tags(
+    client: PaperlessClient, mock_taxonomy: None, respx_mock: respx.MockRouter
+) -> None:
+    tags = await client.taxonomy.hidden_tags()
+
+    assert [t.name for t in tags] == ["gpt-processed"]
+
+
 async def test_list_by_tag_ids_returns_empty_for_no_tags(client: PaperlessClient) -> None:
-    docs = await client.list_by_tag_ids([])
+    docs, total = await client.list_by_tag_ids([])
 
     assert docs == []
+    assert total == 0
 
 
 async def test_list_by_tag_ids_queries_tags_id_in(
@@ -305,11 +316,13 @@ async def test_list_by_tag_ids_queries_tags_id_in(
         json=load_fixture("documents_recent.json")
     )
 
-    docs = await client.list_by_tag_ids([1, 2], limit=10)
+    docs, total = await client.list_by_tag_ids([1, 2], page=2, limit=10)
 
     assert len(docs) == 2
+    assert total == 2
     request = route.calls.last.request
     assert request.url.params["tags__id__in"] == "1,2"
+    assert request.url.params["page"] == "2"
     assert request.url.params["page_size"] == "10"
 
 

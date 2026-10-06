@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 from typing import Any
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Bot, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -25,7 +26,7 @@ from paperbot.telegram.keyboards import decode_inbox_done, encode_inbox_done
 
 logger = logging.getLogger(__name__)
 
-INBOX_LIMIT = 50
+INBOX_PAGE_SIZE = 5
 CLEAR_SENTINEL = 0  # correspondent/type id 0 means "clear" (real ids are >0)
 
 _TAGS_MENU = "it"
@@ -34,8 +35,11 @@ _CORR_MENU = "ic"
 _CORR_SET = "sc"
 _TYPE_MENU = "iy"
 _TYPE_SET = "sy"
+_AI_MENU = "ia"
+_AI_TOGGLE = "ta"
 _RENAME = "ir"
 _BACK = "ba"
+_PAGE = "ip"
 
 
 def _lang(update: Update) -> str:
@@ -80,6 +84,7 @@ def _main_keyboard(doc_id: int) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("📁 Type", callback_data=_encode(_TYPE_MENU, doc_id)),
                 InlineKeyboardButton("✏️ Title", callback_data=_encode(_RENAME, doc_id)),
             ],
+            [InlineKeyboardButton("🤖 AI", callback_data=_encode(_AI_MENU, doc_id))],
             [InlineKeyboardButton("✅ Done", callback_data=encode_inbox_done(doc_id))],
         ]
     )
@@ -94,6 +99,22 @@ def _tags_menu_keyboard(doc_id: int, tags: list[Tag], current: set[str]) -> Inli
             )
         ]
         for tag in tags
+    ]
+    rows.append([InlineKeyboardButton("↩ Back", callback_data=_encode(_BACK, doc_id))])
+    return InlineKeyboardMarkup(rows)
+
+
+def _ai_menu_keyboard(
+    doc_id: int, hidden_tags: list[Tag], current_ids: set[int]
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                f"{'✅' if tag.id in current_ids else '⬜'} {tag.name}",
+                callback_data=_encode(_AI_TOGGLE, doc_id, tag.id),
+            )
+        ]
+        for tag in hidden_tags
     ]
     rows.append([InlineKeyboardButton("↩ Back", callback_data=_encode(_BACK, doc_id))])
     return InlineKeyboardMarkup(rows)
@@ -142,31 +163,69 @@ async def _render_main_card(query: Any, deps: Deps, doc_id: int, lang: str) -> N
     await _render_card(query, deps, doc_id, lang, _main_keyboard(doc_id))
 
 
+def _page_nav_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup | None:
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀", callback_data=_encode(_PAGE, page - 1)))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton("▶", callback_data=_encode(_PAGE, page + 1)))
+    return InlineKeyboardMarkup([nav]) if nav else None
+
+
+async def _send_inbox_page(chat_id: int, bot: Bot, deps: Deps, lang: str, page: int) -> None:
+    try:
+        tag_ids = await deps.paperless.taxonomy.inbox_tag_ids()
+        docs, total = (
+            await deps.paperless.list_by_tag_ids(tag_ids, page=page, limit=INBOX_PAGE_SIZE)
+            if tag_ids
+            else ([], 0)
+        )
+    except PaperlessError:
+        logger.exception("inbox lookup failed")
+        await bot.send_message(chat_id, t("generic_error", lang))
+        return
+
+    if not docs:
+        await bot.send_message(chat_id, t("no_results", lang))
+        return
+
+    for doc in docs:
+        await bot.send_message(
+            chat_id,
+            _format_inbox_header(doc),
+            parse_mode=ParseMode.HTML,
+            reply_markup=_main_keyboard(doc.id),
+        )
+
+    total_pages = max(1, math.ceil(total / INBOX_PAGE_SIZE))
+    if total_pages > 1:
+        nav = _page_nav_keyboard(page, total_pages)
+        await bot.send_message(
+            chat_id, t("page_indicator", lang, page=page, pages=total_pages), reply_markup=nav
+        )
+
+
 async def inbox_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     deps = get_deps(context)
     deps.pending_input.clear(update.message.chat_id)
     lang = _lang(update)
+    await _send_inbox_page(update.message.chat_id, context.bot, deps, lang, page=1)
 
-    try:
-        tag_ids = await deps.paperless.taxonomy.inbox_tag_ids()
-        docs = await deps.paperless.list_by_tag_ids(tag_ids, limit=INBOX_LIMIT) if tag_ids else []
-    except PaperlessError:
-        logger.exception("inbox lookup failed")
-        await update.message.reply_text(t("generic_error", lang))
+
+async def inbox_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    chat = update.effective_chat
+    if query is None or query.data is None or chat is None:
         return
-
-    if not docs:
-        await update.message.reply_text(t("no_results", lang))
+    decoded = _decode(_PAGE, query.data, 1)
+    if decoded is None:
+        await query.answer()
         return
-
-    for doc in docs:
-        await update.message.reply_text(
-            _format_inbox_header(doc),
-            parse_mode=ParseMode.HTML,
-            reply_markup=_main_keyboard(doc.id),
-        )
+    (page,) = decoded
+    await query.answer()
+    await _send_inbox_page(chat.id, context.bot, get_deps(context), _lang(update), page)
 
 
 async def inbox_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -371,6 +430,64 @@ async def type_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await _render_main_card(query, deps, doc_id, lang)
 
 
+async def ai_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    decoded = _decode(_AI_MENU, query.data, 1)
+    if decoded is None:
+        await query.answer()
+        return
+    (doc_id,) = decoded
+    await _render_ai_menu(query, get_deps(context), doc_id, _lang(update))
+
+
+async def _render_ai_menu(query: Any, deps: Deps, doc_id: int, lang: str) -> None:
+    try:
+        doc = await deps.paperless.get_document(doc_id)
+        hidden_tags = await deps.paperless.taxonomy.hidden_tags()
+    except PaperlessError:
+        logger.exception("get_document/hidden_tags failed (inbox AI menu)")
+        await query.answer(t("generic_error", lang), show_alert=True)
+        return
+    await query.answer()
+    if doc is None:
+        await query.edit_message_text(t("doc_not_found", lang, id=doc_id))
+        return
+    await query.edit_message_text(
+        _format_inbox_header(doc),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_ai_menu_keyboard(doc_id, hidden_tags, set(doc.tag_ids)),
+    )
+
+
+async def ai_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    decoded = _decode(_AI_TOGGLE, query.data, 2)
+    if decoded is None:
+        await query.answer()
+        return
+    doc_id, tag_id = decoded
+    deps = get_deps(context)
+    lang = _lang(update)
+    try:
+        doc = await deps.paperless.get_document(doc_id)
+        if doc is None:
+            await query.answer(t("generic_error", lang), show_alert=True)
+            return
+        if tag_id in doc.tag_ids:
+            await deps.paperless.bulk_modify_tags([doc_id], remove_tags=[tag_id])
+        else:
+            await deps.paperless.bulk_modify_tags([doc_id], add_tags=[tag_id])
+    except PaperlessError:
+        logger.exception("AI tag toggle failed for #%d tag=%d", doc_id, tag_id)
+        await query.answer(t("generic_error", lang), show_alert=True)
+        return
+    await _render_ai_menu(query, deps, doc_id, lang)
+
+
 async def rename_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     chat = update.effective_chat
@@ -385,7 +502,13 @@ async def rename_prompt_callback(update: Update, context: ContextTypes.DEFAULT_T
     lang = _lang(update)
     deps.pending_input.set(chat.id, f"rename:{doc_id}")
     await query.answer()
-    await context.bot.send_message(chat.id, t("inbox_rename_prompt", lang, id=doc_id))
+    await context.bot.send_message(
+        chat.id,
+        t("inbox_rename_prompt", lang, id=doc_id),
+        reply_markup=ForceReply(
+            selective=True, input_field_placeholder=t("inbox_rename_placeholder", lang)
+        ),
+    )
 
 
 async def handle_rename_input(
@@ -425,5 +548,8 @@ def register_inbox_handlers(application: Application[Any, Any, Any, Any, Any, An
     application.add_handler(CallbackQueryHandler(corr_set_callback, pattern=rf"^{_CORR_SET}:"))
     application.add_handler(CallbackQueryHandler(type_menu_callback, pattern=rf"^{_TYPE_MENU}:"))
     application.add_handler(CallbackQueryHandler(type_set_callback, pattern=rf"^{_TYPE_SET}:"))
+    application.add_handler(CallbackQueryHandler(ai_menu_callback, pattern=rf"^{_AI_MENU}:"))
+    application.add_handler(CallbackQueryHandler(ai_toggle_callback, pattern=rf"^{_AI_TOGGLE}:"))
     application.add_handler(CallbackQueryHandler(rename_prompt_callback, pattern=rf"^{_RENAME}:"))
     application.add_handler(CallbackQueryHandler(back_callback, pattern=rf"^{_BACK}:"))
+    application.add_handler(CallbackQueryHandler(inbox_page_callback, pattern=rf"^{_PAGE}:"))

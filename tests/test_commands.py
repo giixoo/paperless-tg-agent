@@ -5,6 +5,8 @@ from datetime import date, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from telegram import ForceReply
+
 from paperbot.config import Settings
 from paperbot.paperless import Document
 from paperbot.telegram import commands
@@ -223,19 +225,14 @@ async def test_text_handler_continues_pending_search(settings: Settings) -> None
     assert deps.pending_input.pop(chat_id) is None
 
 
-async def test_cancel_callback_clears_pending_input(settings: Settings) -> None:
-    chat_id = 777
-    search_update = make_update(chat_id=chat_id)
+async def test_search_command_prompt_uses_force_reply(settings: Settings) -> None:
+    update = make_update()
     context = make_context(settings, FakePaperless(), args=[])
-    await commands.search_command(search_update, context)
 
-    cancel_update = make_callback_update("cx", chat_id=chat_id)
-    await commands.cancel_callback(cancel_update, context)
+    await commands.search_command(update, context)
 
-    cancel_update.callback_query.answer.assert_awaited_once()
-    cancel_update.callback_query.edit_message_text.assert_awaited_once_with("Cancelled.")
-    deps = context.application.bot_data[DEPS_KEY]
-    assert deps.pending_input.pop(chat_id) is None
+    kwargs = update.message.reply_text.call_args.kwargs
+    assert isinstance(kwargs["reply_markup"], ForceReply)
 
 
 # --- /doc -------------------------------------------------------------------

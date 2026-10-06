@@ -79,21 +79,22 @@ All configuration is via environment variables (see `.env.example`).
 ## Known limitations
 
 Most of the Paperless-ngx API shape has now been verified against a real
-v3.2.x server (tags incl. `is_inbox_tag`, custom field `data_type` values and
-their monetary/date/string value shapes, the document list/detail shape, and
-the `custom_field_query` grammar — both `exists` and `range` confirmed to
-correctly filter by field *name*, exactly as `find_by_custom_field`,
-`/expiring`, and the reminder job use it) and is pinned by
-`tests/fixtures/real_*.json`. A couple of details remain unverified — marked
-with a `TODO(paperless-api)` comment in the code, per CLAUDE.md's clean-room/
-no-guessing policy:
+v3.2.x server through live use (tags incl. `is_inbox_tag`, custom field
+`data_type` values and their monetary/date/string value shapes, the
+document list/detail shape, the `custom_field_query` grammar — both
+`exists` and `range` confirmed to correctly filter by field *name* — the
+upload task response shape including `related_document` on SUCCESS, the
+`post_document/` response body, and `tags__id__in` for `/inbox`) and is
+pinned by `tests/fixtures/real_*.json` where practical. Two details remain
+unverified — marked with a `TODO(paperless-api)` comment in the code, per
+CLAUDE.md's clean-room/no-guessing policy:
 
-- **Task response shape** after an upload, including whether
-  `related_document` is present on SUCCESS.
-- **`post_document/` response body** (bare UUID string vs. `{"task_id": ...}`)
-  — both are handled, neither confirmed.
-- **`tags__id__in` filter** (`/inbox`) and the bulk-edit `modify_tags`
-  parameter shape (the "✅ Done" button).
+- The bulk-edit `modify_tags` parameter shape (the `/inbox` "✅ Done" button
+  and tag toggles) — the request looks right but hasn't been confirmed to
+  actually change anything on a real server yet.
+- `update_document` (`PATCH /api/documents/{id}/`, used by the inbox
+  correspondent/type/title editing) — standard DRF partial update, but not
+  yet confirmed against a real server either.
 
 Everything else is tested against fixtures modeled on the public API docs or
 pinned to real server responses (`tests/fixtures/`), with no real network

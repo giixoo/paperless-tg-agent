@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -81,6 +81,10 @@ class Document:
     notes: str | None = None
     page_count: int | None = None
     snippet: str | None = None
+    tag_ids: list[int] = field(default_factory=list)
+    """Raw tag ids, unlike `tags` (names, with hidden-prefix tags filtered
+    out). Needed by the inbox "🤖 AI" menu to show/toggle workflow tags,
+    which are deliberately excluded from `tags`."""
 
 
 @dataclass(slots=True)
@@ -287,6 +291,13 @@ class TaxonomyCache:
         await self._ensure_loaded()
         return [t.id for t in self._tags.values() if t.is_inbox_tag and not self._is_hidden(t.name)]
 
+    async def hidden_tags(self) -> list[Tag]:
+        """Tags excluded everywhere else (search, the agent, the regular
+        Tags menu) — exposed only via the inbox "🤖 AI" menu for manual
+        workflow-tag triage."""
+        await self._ensure_loaded()
+        return [t for t in self._tags.values() if self._is_hidden(t.name)]
+
 
 class PaperlessClient:
     def __init__(self, settings: Settings, http_client: httpx.AsyncClient) -> None:
@@ -412,6 +423,7 @@ class PaperlessClient:
             notes=_extract_notes(raw.get("notes")),
             page_count=raw.get("page_count"),
             snippet=search_hit.get("highlights"),
+            tag_ids=list(raw.get("tags", [])),
         )
 
     async def search_documents(
@@ -463,21 +475,26 @@ class PaperlessClient:
         )
         return [await self._to_document(r) for r in data.get("results", [])]
 
-    async def list_by_tag_ids(self, tag_ids: list[int], limit: int = 50) -> list[Document]:
+    async def list_by_tag_ids(
+        self, tag_ids: list[int], *, page: int = 1, limit: int = 50
+    ) -> tuple[list[Document], int]:
         """List documents carrying any of the given tag ids (OR semantics).
 
-        TODO(paperless-api): `tags__id__in` is the standard django-filter "in"
-        lookup convention; SPEC §7 only confirms `tags__id__all` (AND).
-        Verify `tags__id__in` against a real server and fall back to
-        per-tag queries + merge if it's not supported.
+        `tags__id__in` confirmed working against a real v3.2.x server
+        (returned real inbox documents during live testing).
         """
         if not tag_ids:
-            return []
+            return [], 0
         data = await self._get_json(
             "/api/documents/",
-            params={"tags__id__in": ",".join(str(i) for i in tag_ids), "page_size": limit},
+            params={
+                "tags__id__in": ",".join(str(i) for i in tag_ids),
+                "page": page,
+                "page_size": limit,
+            },
         )
-        return [await self._to_document(r) for r in data.get("results", [])]
+        docs = [await self._to_document(r) for r in data.get("results", [])]
+        return docs, data.get("count", len(docs))
 
     async def bulk_modify_tags(
         self,

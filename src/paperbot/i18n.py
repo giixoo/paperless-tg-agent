@@ -293,17 +293,29 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "Jakie id dokumentu?",
         "ru": "Какой id документа?",
     },
-    "cancelled": {
-        "en": "Cancelled.",
-        "uk": "Скасовано.",
-        "pl": "Anulowano.",
-        "ru": "Отменено.",
+    "search_placeholder": {
+        "en": "Search query…",
+        "uk": "Пошуковий запит…",
+        "pl": "Zapytanie…",
+        "ru": "Поисковый запрос…",
+    },
+    "doc_placeholder": {
+        "en": "Document id…",
+        "uk": "Id документа…",
+        "pl": "Id dokumentu…",
+        "ru": "Id документа…",
     },
     "inbox_rename_prompt": {
         "en": "Send the new title for #{id}:",
         "uk": "Надішліть нову назву для #{id}:",
         "pl": "Wyślij nowy tytuł dla #{id}:",
         "ru": "Отправьте новое название для #{id}:",
+    },
+    "inbox_rename_placeholder": {
+        "en": "New title…",
+        "uk": "Нова назва…",
+        "pl": "Nowy tytuł…",
+        "ru": "Новое название…",
     },
     "inbox_renamed": {
         "en": "Title updated.",

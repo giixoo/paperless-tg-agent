@@ -306,11 +306,23 @@ server surfaced several UX issues. All of the below ship together as v0.2.
   full `/doc`-style card in place) instead of a single message with a text
   list and a separate block of buttons below it.
 - **Inbox metadata editing** (expands the v0.1 §11 exclusion): each `/inbox`
-  card gets `[🏷 Tags] [🏢 Correspondent] [📁 Type] [✏️ Title] [✅ Done]`
-  buttons. Tags/Correspondent/Type are **pick from existing values only** —
-  no creating brand-new taxonomy entries from Telegram. Title is free text
-  (there's nothing to "pick" for a title), entered via the same prompt
-  mechanism as `/search`/`/doc`.
+  card gets `[🏷 Tags] [🏢 Correspondent] [📁 Type] [✏️ Title] [🤖 AI]
+  [✅ Done]` buttons. Tags/Correspondent/Type are **pick from existing
+  values only** — no creating brand-new taxonomy entries from Telegram.
+  Title is free text (there's nothing to "pick" for a title). `🤖 AI` is a
+  separate submenu exposing the `HIDDEN_TAG_PREFIXES` (`gpt-*`/`sonnet-*`)
+  workflow tags for manual triage (e.g. retrying a failed OCR) — these stay
+  invisible everywhere else (search, the agent, the regular Tags menu).
+- **`/inbox` is paginated** 5 at a time (same card-batch + ◀/▶
+  pagination-message pattern as `/search`), instead of sending every
+  inbox-tagged document as separate messages in one shot.
+- **Text prompts (`/search`, `/doc`, inbox title rename) use Telegram's
+  `ForceReply`** instead of a "✖ Cancel" inline button — it auto-opens the
+  client's reply compose box focused on the prompt, which is clearer that a
+  text reply is expected. Trade-off: `ForceReply` can't coexist with an
+  inline keyboard on the same message, so there's no dedicated Cancel
+  button anymore; issuing any other command still discards a pending
+  prompt.
 - **Light HTML formatting**: document titles are bolded, and the "Open in
   Paperless" link is a real hyperlink, across the search/doc/recent/
   expiring/inbox card builders. Not a full redesign — field labels and
@@ -320,3 +332,13 @@ New files beyond §8's v0.1 layout: `telegram/inbox.py` (the inbox editing
 feature — `/inbox` moved here from `commands.py`) and `telegram/state.py`
 (`PendingInputStore`, the "waiting for a reply" mechanism behind the
 `/search`/`/doc`/title-rename prompts).
+
+**Confirmed against the real server during this round's live testing:**
+`tags__id__in` (used by `/inbox`) returns correct results — the earlier
+`TODO(paperless-api)` uncertainty is resolved. The "duplicate upload, no
+warning" report (logged for diagnosis in the first v0.2 pass) turned out
+not to be a bug: the task result showed Paperless genuinely created a new,
+distinct document (`status=SUCCESS`, a fresh id, no "duplicate" in the
+result text) — most likely because Telegram doesn't guarantee byte-identical
+files across repeated sends of "the same" photo, so Paperless's
+checksum-based dedup correctly saw two different files.

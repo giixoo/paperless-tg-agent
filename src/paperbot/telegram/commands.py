@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from telegram import Bot, BotCommand, Update
+from telegram import Bot, BotCommand, ForceReply, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -30,7 +30,6 @@ from paperbot.telegram.files import send_document_to_chat
 from paperbot.telegram.inbox import handle_rename_input
 from paperbot.telegram.keyboards import (
     SearchState,
-    cancel_keyboard,
     decode_search_collapse,
     decode_search_expand,
     decode_search_page,
@@ -188,7 +187,12 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = " ".join(context.args) if context.args else ""
     if not query:
         deps.pending_input.set(chat_id, "search")
-        await update.message.reply_text(t("search_prompt", lang), reply_markup=cancel_keyboard())
+        await update.message.reply_text(
+            t("search_prompt", lang),
+            reply_markup=ForceReply(
+                selective=True, input_field_placeholder=t("search_placeholder", lang)
+            ),
+        )
         return
     await _run_search(update, context, query)
 
@@ -266,17 +270,6 @@ async def search_collapse_callback(update: Update, context: ContextTypes.DEFAULT
     await _render_search_card(query, get_deps(context), doc_id, _lang(update), expanded=False)
 
 
-async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    chat = update.effective_chat
-    if query is None:
-        return
-    if chat is not None:
-        get_deps(context).pending_input.clear(chat.id)
-    await query.answer()
-    await query.edit_message_text(t("cancelled", _lang(update)))
-
-
 async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
@@ -337,7 +330,12 @@ async def doc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     lang = _lang(update)
     if not context.args:
         deps.pending_input.set(chat_id, "doc")
-        await update.message.reply_text(t("doc_prompt", lang), reply_markup=cancel_keyboard())
+        await update.message.reply_text(
+            t("doc_prompt", lang),
+            reply_markup=ForceReply(
+                selective=True, input_field_placeholder=t("doc_placeholder", lang)
+            ),
+        )
         return
     try:
         doc_id = int(context.args[0])
@@ -498,5 +496,4 @@ def register_handlers(application: Application[Any, Any, Any, Any, Any, Any]) ->
     application.add_handler(CallbackQueryHandler(search_page_callback, pattern=r"^sp:"))
     application.add_handler(CallbackQueryHandler(search_expand_callback, pattern=r"^xd:"))
     application.add_handler(CallbackQueryHandler(search_collapse_callback, pattern=r"^cd:"))
-    application.add_handler(CallbackQueryHandler(cancel_callback, pattern=r"^cx$"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
