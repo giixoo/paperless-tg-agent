@@ -25,6 +25,7 @@ from paperbot.telegram.commands import register_handlers
 from paperbot.telegram.deps import DEPS_KEY, Deps
 from paperbot.telegram.files import register_file_handlers
 from paperbot.telegram.keyboards import SearchStateStore
+from paperbot.telegram.reminders import register_reminder_job
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ async def _run(settings: Settings) -> None:
         )
         register_handlers(application)
         register_file_handlers(application)
+        register_reminder_job(application, settings)
 
         alive = True
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -217,3 +218,70 @@ async def test_get_task_returns_none_when_empty(
     result = await client.get_task("missing")
 
     assert result is None
+
+
+async def test_inbox_tag_ids_filters_hidden_and_non_inbox_tags(
+    client: PaperlessClient, mock_taxonomy: None, respx_mock: respx.MockRouter
+) -> None:
+    # tags.json: id=2 "Inbox" is_inbox_tag=true; id=4 "gpt-processed" is hidden
+    ids = await client.taxonomy.inbox_tag_ids()
+
+    assert ids == [2]
+
+
+async def test_list_by_tag_ids_returns_empty_for_no_tags(client: PaperlessClient) -> None:
+    docs = await client.list_by_tag_ids([])
+
+    assert docs == []
+
+
+async def test_list_by_tag_ids_queries_tags_id_in(
+    client: PaperlessClient,
+    mock_taxonomy: None,
+    respx_mock: respx.MockRouter,
+    load_fixture: Callable[[str], dict[str, Any]],
+) -> None:
+    route = respx_mock.get("http://paperless.test/api/documents/").respond(
+        json=load_fixture("documents_recent.json")
+    )
+
+    docs = await client.list_by_tag_ids([1, 2], limit=10)
+
+    assert len(docs) == 2
+    request = route.calls.last.request
+    assert request.url.params["tags__id__in"] == "1,2"
+    assert request.url.params["page_size"] == "10"
+
+
+async def test_bulk_remove_tags_noop_without_tags_or_documents(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    await client.bulk_remove_tags([], [1])
+    await client.bulk_remove_tags([412], [])
+
+    assert respx_mock.calls.call_count == 0
+
+
+async def test_bulk_remove_tags_posts_modify_tags(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(json="OK")
+
+    await client.bulk_remove_tags([412], [2])
+
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body == {
+        "documents": [412],
+        "method": "modify_tags",
+        "parameters": {"add_tags": [], "remove_tags": [2]},
+    }
+
+
+async def test_bulk_remove_tags_raises_on_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(status_code=400)
+
+    with pytest.raises(PaperlessError):
+        await client.bulk_remove_tags([412], [2])

@@ -17,6 +17,7 @@ from paperbot.paperless import Document
 
 CALLBACK_SEARCH_PAGE = "sp"  # sp:<token>:<page>
 CALLBACK_DOWNLOAD = "dl"  # dl:<doc_id>
+CALLBACK_INBOX_DONE = "ib"  # ib:<doc_id>
 
 
 @dataclass(slots=True)
@@ -96,3 +97,25 @@ def search_results_keyboard(
     if nav:
         rows.append(nav)
     return InlineKeyboardMarkup(rows) if rows else None
+
+
+def encode_inbox_done(doc_id: int) -> str:
+    data = f"{CALLBACK_INBOX_DONE}:{doc_id}"
+    assert len(data.encode()) <= 64, "callback_data exceeds 64 bytes"
+    return data
+
+
+def decode_inbox_done(data: str) -> int | None:
+    parts = data.split(":")
+    if len(parts) != 2 or parts[0] != CALLBACK_INBOX_DONE:
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
+def inbox_done_keyboard(doc_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("✅ Done", callback_data=encode_inbox_done(doc_id))]]
+    )

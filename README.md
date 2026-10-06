@@ -6,12 +6,14 @@ tool-use agent for natural-language Q&A over your documents.
 
 Full requirements: [Spec.md](Spec.md).
 
-**Status:** Milestones 1-3 — config, Paperless client, access control,
+**Status:** Milestones 1-4 — config, Paperless client, access control,
 `/help`, `/search`, `/recent`, `/doc`, health endpoint, Docker image, file
-download (📄 buttons) and upload with task polling/duplicate detection, and
-the Claude tool-use agent (free-text Q&A, `/usage`, `/clear`, prompt
-caching, daily budget cap). `/inbox`, `/expiring` and reminders land in
-later milestones (see Spec.md §10).
+download (📄 buttons) and upload with task polling/duplicate detection, the
+Claude tool-use agent (free-text Q&A, `/usage`, `/clear`, prompt caching,
+daily budget cap), `/inbox` (with a "✅ Done" button that clears the inbox
+tag), `/expiring`, and a daily expiry reminder job. Remaining work per
+Spec.md §10: README/`.env.example` polish and a final green check (milestone
+5).
 
 ## Setup
 

@@ -1,12 +1,14 @@
-"""/help /search /recent /doc /usage /clear command handlers + free-text
-agent routing (SPEC §4.2, §4.5)."""
+"""/help /search /recent /doc /inbox /expiring /usage /clear command
+handlers + free-text agent routing (SPEC §4.2, §4.5)."""
 
 from __future__ import annotations
 
+import json
 import logging
 import math
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -26,8 +28,10 @@ from paperbot.telegram.deps import get_deps
 from paperbot.telegram.files import send_document_to_chat
 from paperbot.telegram.keyboards import (
     SearchState,
+    decode_inbox_done,
     decode_search_page,
     doc_card_keyboard,
+    inbox_done_keyboard,
     search_results_keyboard,
 )
 
@@ -37,6 +41,25 @@ SEARCH_PAGE_SIZE = 5
 RECENT_DEFAULT = 10
 RECENT_MAX = 50
 USAGE_HISTORY_DAYS = 7
+INBOX_LIMIT = 50
+EXPIRING_DEFAULT_DAYS = 60
+EXPIRING_LIMIT = 50
+
+
+def parse_ddmmyyyy(value: str) -> date | None:
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def format_relative_days(target: date, today: date, lang: str) -> str:
+    delta = (target - today).days
+    if delta == 0:
+        return t("rel_today", lang)
+    if delta > 0:
+        return t("rel_in_days", lang, n=delta)
+    return t("rel_expired_days_ago", lang, n=-delta)
 
 
 def _lang(update: Update) -> str:
@@ -267,12 +290,110 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await message.reply_text(answer)
 
 
+async def inbox_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    lang = _lang(update)
+    deps = get_deps(context)
+
+    try:
+        tag_ids = await deps.paperless.taxonomy.inbox_tag_ids()
+        docs = await deps.paperless.list_by_tag_ids(tag_ids, limit=INBOX_LIMIT) if tag_ids else []
+    except PaperlessError:
+        logger.exception("inbox lookup failed")
+        await update.message.reply_text(t("generic_error", lang))
+        return
+
+    if not docs:
+        await update.message.reply_text(t("no_results", lang))
+        return
+
+    for doc in docs:
+        await update.message.reply_text(
+            _format_doc_line(doc), reply_markup=inbox_done_keyboard(doc.id)
+        )
+
+
+async def inbox_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None:
+        return
+    doc_id = decode_inbox_done(query.data)
+    if doc_id is None:
+        await query.answer()
+        return
+
+    lang = _lang(update)
+    deps = get_deps(context)
+    try:
+        tag_ids = await deps.paperless.taxonomy.inbox_tag_ids()
+        if tag_ids:
+            await deps.paperless.bulk_remove_tags([doc_id], tag_ids)
+    except PaperlessError:
+        logger.exception("bulk_remove_tags failed for #%d", doc_id)
+        await query.answer(t("generic_error", lang), show_alert=True)
+        return
+
+    await query.answer(t("inbox_done", lang))
+    await query.edit_message_reply_markup(reply_markup=None)
+
+
+async def expiring_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    lang = _lang(update)
+    days = EXPIRING_DEFAULT_DAYS
+    if context.args:
+        try:
+            days = max(1, int(context.args[0]))
+        except ValueError:
+            await update.message.reply_text(t("expiring_usage", lang))
+            return
+
+    deps = get_deps(context)
+    today = datetime.now(ZoneInfo(deps.settings.tz)).date()
+    end_date = today + timedelta(days=days)
+    field_query = json.dumps(
+        [deps.settings.expiry_field_name, "range", [today.isoformat(), end_date.isoformat()]]
+    )
+
+    try:
+        docs = await deps.paperless.find_by_custom_field_query(field_query, limit=EXPIRING_LIMIT)
+    except PaperlessError:
+        logger.exception("find_by_custom_field_query (expiring) failed")
+        await update.message.reply_text(t("generic_error", lang))
+        return
+
+    if not docs:
+        await update.message.reply_text(t("no_results", lang))
+        return
+
+    def sort_key(doc: Document) -> date:
+        raw = doc.custom_fields.get(deps.settings.expiry_field_name)
+        parsed = parse_ddmmyyyy(raw) if raw else None
+        return parsed or date.max
+
+    docs.sort(key=sort_key)
+
+    lines = []
+    for doc in docs:
+        raw = doc.custom_fields.get(deps.settings.expiry_field_name)
+        parsed = parse_ddmmyyyy(raw) if raw else None
+        rel = f" — {format_relative_days(parsed, today, lang)}" if parsed else ""
+        lines.append(f"{_format_doc_line(doc)}{rel}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
 def register_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:
     application.add_handler(CommandHandler(["start", "help"], help_command))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("recent", recent_command))
     application.add_handler(CommandHandler("doc", doc_command))
+    application.add_handler(CommandHandler("inbox", inbox_command))
+    application.add_handler(CommandHandler("expiring", expiring_command))
     application.add_handler(CommandHandler("usage", usage_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(CallbackQueryHandler(search_page_callback, pattern=r"^sp:"))
+    application.add_handler(CallbackQueryHandler(inbox_done_callback, pattern=r"^ib:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))

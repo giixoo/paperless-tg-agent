@@ -197,6 +197,42 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "Ostatnie 7 dni:",
         "ru": "Последние 7 дней:",
     },
+    "expiring_usage": {
+        "en": "Usage: /expiring [days]",
+        "uk": "Використання: /expiring [днів]",
+        "pl": "Użycie: /expiring [dni]",
+        "ru": "Использование: /expiring [дней]",
+    },
+    "inbox_done": {
+        "en": "Removed from inbox.",
+        "uk": "Видалено з вхідних.",
+        "pl": "Usunięto ze skrzynki.",
+        "ru": "Удалено из входящих.",
+    },
+    "rel_today": {
+        "en": "today",
+        "uk": "сьогодні",
+        "pl": "dzisiaj",
+        "ru": "сегодня",
+    },
+    "rel_in_days": {
+        "en": "in {n} days",
+        "uk": "через {n} дн.",
+        "pl": "za {n} dni",
+        "ru": "через {n} дн.",
+    },
+    "rel_expired_days_ago": {
+        "en": "expired {n} days ago",
+        "uk": "минув {n} дн. тому",
+        "pl": "minęło {n} dni temu",
+        "ru": "истёк {n} дн. назад",
+    },
+    "reminder_header": {
+        "en": "📅 Document expiry reminder",
+        "uk": "📅 Нагадування про закінчення документів",
+        "pl": "📅 Przypomnienie o wygasających dokumentach",
+        "ru": "📅 Напоминание о сроках действия документов",
+    },
 }
 
 

@@ -275,6 +275,10 @@ class TaxonomyCache:
         await self._ensure_loaded()
         return list(self._custom_fields.values())
 
+    async def inbox_tag_ids(self) -> list[int]:
+        await self._ensure_loaded()
+        return [t.id for t in self._tags.values() if t.is_inbox_tag and not self._is_hidden(t.name)]
+
 
 class PaperlessClient:
     def __init__(self, settings: Settings, http_client: httpx.AsyncClient) -> None:
@@ -444,6 +448,55 @@ class PaperlessClient:
             params={"custom_field_query": custom_field_query_json, "page_size": limit},
         )
         return [await self._to_document(r) for r in data.get("results", [])]
+
+    async def list_by_tag_ids(self, tag_ids: list[int], limit: int = 50) -> list[Document]:
+        """List documents carrying any of the given tag ids (OR semantics).
+
+        TODO(paperless-api): `tags__id__in` is the standard django-filter "in"
+        lookup convention; SPEC §7 only confirms `tags__id__all` (AND).
+        Verify `tags__id__in` against a real server and fall back to
+        per-tag queries + merge if it's not supported.
+        """
+        if not tag_ids:
+            return []
+        data = await self._get_json(
+            "/api/documents/",
+            params={"tags__id__in": ",".join(str(i) for i in tag_ids), "page_size": limit},
+        )
+        return [await self._to_document(r) for r in data.get("results", [])]
+
+    async def bulk_remove_tags(self, document_ids: list[int], tag_ids: list[int]) -> None:
+        """Remove `tag_ids` from `document_ids` via the bulk_edit endpoint.
+
+        TODO(paperless-api): modeled on the documented bulk-edit "modify_tags"
+        action (https://docs.paperless-ngx.com/api/#bulk-edit); verify the
+        exact parameter shape against a real v3.2.x server.
+        """
+        if not document_ids or not tag_ids:
+            return
+        await self._post_json(
+            "/api/documents/bulk_edit/",
+            {
+                "documents": document_ids,
+                "method": "modify_tags",
+                "parameters": {"add_tags": [], "remove_tags": tag_ids},
+            },
+        )
+
+    async def _post_json(self, path: str, body: dict[str, Any]) -> Any:
+        url = f"{str(self._settings.paperless_url).rstrip('/')}{path}"
+        try:
+            resp = await self._http.post(
+                url, json=body, headers=self._headers(), timeout=_DEFAULT_TIMEOUT
+            )
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error posting to {path}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"{path} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
+        return resp.json() if resp.content else None
 
     async def download_document(self, doc_id: int, *, original: bool) -> tuple[bytes, str] | None:
         """Download a document's file. Returns (content, filename) or None if
