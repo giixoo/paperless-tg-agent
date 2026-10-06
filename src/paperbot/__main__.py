@@ -21,11 +21,13 @@ from paperbot.config import Settings, load_settings
 from paperbot.health import run_health_server
 from paperbot.paperless import PaperlessClient
 from paperbot.telegram.auth import build_auth_middleware
-from paperbot.telegram.commands import register_handlers
+from paperbot.telegram.commands import register_bot_commands, register_handlers
 from paperbot.telegram.deps import DEPS_KEY, Deps
 from paperbot.telegram.files import register_file_handlers
+from paperbot.telegram.inbox import register_inbox_handlers
 from paperbot.telegram.keyboards import SearchStateStore
 from paperbot.telegram.reminders import register_reminder_job
+from paperbot.telegram.state import PendingInputStore
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +73,14 @@ async def _run(settings: Settings) -> None:
             anthropic_client=anthropic_client,
             budget_store=budget_store,
             agent_memory=agent_memory,
+            pending_input=PendingInputStore(),
         )
         application.add_handler(
             TypeHandler(Update, build_auth_middleware(settings.telegram_allowed_users)), group=-1
         )
         register_handlers(application)
         register_file_handlers(application)
+        register_inbox_handlers(application)
         register_reminder_job(application, settings)
 
         alive = True
@@ -96,6 +100,7 @@ async def _run(settings: Settings) -> None:
         try:
             async with application:
                 await application.start()
+                await register_bot_commands(application.bot)
                 if application.updater is None:
                     raise RuntimeError("Application has no updater")
                 await application.updater.start_polling()

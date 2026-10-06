@@ -313,21 +313,21 @@ async def test_list_by_tag_ids_queries_tags_id_in(
     assert request.url.params["page_size"] == "10"
 
 
-async def test_bulk_remove_tags_noop_without_tags_or_documents(
+async def test_bulk_modify_tags_noop_without_tags_or_documents(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
-    await client.bulk_remove_tags([], [1])
-    await client.bulk_remove_tags([412], [])
+    await client.bulk_modify_tags([], remove_tags=[1])
+    await client.bulk_modify_tags([412])
 
     assert respx_mock.calls.call_count == 0
 
 
-async def test_bulk_remove_tags_posts_modify_tags(
+async def test_bulk_modify_tags_posts_remove(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
     route = respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(json="OK")
 
-    await client.bulk_remove_tags([412], [2])
+    await client.bulk_modify_tags([412], remove_tags=[2])
 
     request = route.calls.last.request
     body = json.loads(request.content)
@@ -338,13 +338,58 @@ async def test_bulk_remove_tags_posts_modify_tags(
     }
 
 
-async def test_bulk_remove_tags_raises_on_error(
+async def test_bulk_modify_tags_posts_add(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(json="OK")
+
+    await client.bulk_modify_tags([412], add_tags=[3])
+
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body == {
+        "documents": [412],
+        "method": "modify_tags",
+        "parameters": {"add_tags": [3], "remove_tags": []},
+    }
+
+
+async def test_bulk_modify_tags_raises_on_error(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
     respx_mock.post("http://paperless.test/api/documents/bulk_edit/").respond(status_code=400)
 
     with pytest.raises(PaperlessError):
-        await client.bulk_remove_tags([412], [2])
+        await client.bulk_modify_tags([412], remove_tags=[2])
+
+
+async def test_update_document_patches_fields(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.patch("http://paperless.test/api/documents/412/").respond(json={"id": 412})
+
+    await client.update_document(412, title="New title", correspondent=20)
+
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body == {"title": "New title", "correspondent": 20}
+
+
+async def test_update_document_noop_without_fields(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    await client.update_document(412)
+
+    assert respx_mock.calls.call_count == 0
+
+
+async def test_update_document_raises_on_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.patch("http://paperless.test/api/documents/412/").respond(status_code=400)
+
+    with pytest.raises(PaperlessError):
+        await client.update_document(412, title="x")
 
 
 def test_format_custom_field_value_monetary_matches_real_server() -> None:

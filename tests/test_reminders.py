@@ -51,6 +51,7 @@ def make_context(settings: Settings, paperless: FakePaperless) -> MagicMock:
         anthropic_client=MagicMock(),
         budget_store=MagicMock(),
         agent_memory=MagicMock(),
+        pending_input=MagicMock(),
     )
     context.application.bot_data = {DEPS_KEY: deps}
     context.bot.send_message = AsyncMock()

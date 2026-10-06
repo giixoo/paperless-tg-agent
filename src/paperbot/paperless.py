@@ -479,23 +479,53 @@ class PaperlessClient:
         )
         return [await self._to_document(r) for r in data.get("results", [])]
 
-    async def bulk_remove_tags(self, document_ids: list[int], tag_ids: list[int]) -> None:
-        """Remove `tag_ids` from `document_ids` via the bulk_edit endpoint.
+    async def bulk_modify_tags(
+        self,
+        document_ids: list[int],
+        *,
+        add_tags: list[int] | None = None,
+        remove_tags: list[int] | None = None,
+    ) -> None:
+        """Add/remove tags on `document_ids` via the bulk_edit endpoint.
 
         TODO(paperless-api): modeled on the documented bulk-edit "modify_tags"
         action (https://docs.paperless-ngx.com/api/#bulk-edit); verify the
         exact parameter shape against a real v3.2.x server.
         """
-        if not document_ids or not tag_ids:
+        add_tags = add_tags or []
+        remove_tags = remove_tags or []
+        if not document_ids or (not add_tags and not remove_tags):
             return
         await self._post_json(
             "/api/documents/bulk_edit/",
             {
                 "documents": document_ids,
                 "method": "modify_tags",
-                "parameters": {"add_tags": [], "remove_tags": tag_ids},
+                "parameters": {"add_tags": add_tags, "remove_tags": remove_tags},
             },
         )
+
+    async def update_document(self, doc_id: int, **fields: Any) -> None:
+        """Partially update a document (title/correspondent/document_type/...)
+        via `PATCH /api/documents/{id}/`.
+
+        TODO(paperless-api): standard DRF partial update, matching Paperless's
+        own web UI edit behavior, but not yet confirmed against a real server.
+        """
+        if not fields:
+            return
+        url = f"{str(self._settings.paperless_url).rstrip('/')}/api/documents/{doc_id}/"
+        try:
+            resp = await self._http.patch(
+                url, json=fields, headers=self._headers(), timeout=_DEFAULT_TIMEOUT
+            )
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error updating document #{doc_id}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"update_document #{doc_id} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
 
     async def _post_json(self, path: str, body: dict[str, Any]) -> Any:
         url = f"{str(self._settings.paperless_url).rstrip('/')}{path}"
