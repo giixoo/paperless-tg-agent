@@ -38,7 +38,7 @@ def configure_logging(level: str) -> None:
 
 
 async def _run(settings: Settings) -> None:
-    async with httpx.AsyncClient() as http_client:
+    async with httpx.AsyncClient(follow_redirects=True) as http_client:
         paperless = PaperlessClient(settings, http_client)
 
         paperless_ok = await paperless.ping()

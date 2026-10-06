@@ -343,7 +343,9 @@ class PaperlessClient:
         request_timeout: float = _DEFAULT_TIMEOUT,
     ) -> dict[str, Any]:
         resp = await self._request_get(path, params, request_timeout=request_timeout)
-        result: dict[str, Any] = resp.json()
+        result = _safe_json(resp, path)
+        if not isinstance(result, dict):
+            raise PaperlessError(f"{path} returned unexpected JSON shape: {type(result).__name__}")
         return result
 
     async def _get_any(
@@ -354,7 +356,7 @@ class PaperlessClient:
         request_timeout: float = _DEFAULT_TIMEOUT,
     ) -> Any:
         resp = await self._request_get(path, params, request_timeout=request_timeout)
-        return resp.json()
+        return _safe_json(resp, path)
 
     async def ping(self) -> bool:
         try:
@@ -502,7 +504,7 @@ class PaperlessClient:
                 f"{path} returned HTTP {resp.status_code}: {resp.text[:200]}",
                 status_code=resp.status_code,
             )
-        return resp.json() if resp.content else None
+        return _safe_json(resp, path) if resp.content else None
 
     async def download_document(self, doc_id: int, *, original: bool) -> tuple[bytes, str] | None:
         """Download a document's file. Returns (content, filename) or None if
@@ -550,7 +552,7 @@ class PaperlessClient:
                 f"post_document returned HTTP {resp.status_code}: {resp.text[:200]}",
                 status_code=resp.status_code,
             )
-        parsed = resp.json()
+        parsed = _safe_json(resp, "/api/documents/post_document/")
         if isinstance(parsed, str):
             return parsed
         if isinstance(parsed, dict) and "task_id" in parsed:
@@ -574,6 +576,21 @@ class PaperlessClient:
             result=item.get("result"),
             related_document=item.get("related_document"),
         )
+
+
+def _safe_json(resp: httpx.Response, path: str) -> Any:
+    """resp.json() raises a bare ValueError (JSONDecodeError) on non-JSON
+    bodies - e.g. an unexpected redirect page - which must never escape as
+    an uncaught exception; wrap it as a PaperlessError like every other
+    failure mode here.
+    """
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise PaperlessError(
+            f"{path} returned a non-JSON response (HTTP {resp.status_code}): {exc}",
+            status_code=resp.status_code,
+        ) from exc
 
 
 def _filename_from_content_disposition(header: str | None) -> str | None:

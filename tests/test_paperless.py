@@ -144,6 +144,27 @@ async def test_get_json_raises_after_exhausting_retries(
         await client.list_tags_raw()
 
 
+async def test_non_json_response_raises_paperless_error_not_json_decode_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    """Regression: a 200 response with a non-JSON (e.g. empty/redirect-page)
+    body must surface as PaperlessError, not an uncaught JSONDecodeError
+    that would crash ping()/callers whose `except PaperlessError` can't
+    catch a bare ValueError."""
+    respx_mock.get("http://paperless.test/api/").respond(status_code=200, content=b"")
+
+    with pytest.raises(PaperlessError):
+        await client._get_json("/api/")
+
+
+async def test_ping_returns_false_on_non_json_response(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("http://paperless.test/api/").respond(status_code=200, content=b"")
+
+    assert await client.ping() is False
+
+
 async def test_download_document_uses_content_disposition_filename(
     client: PaperlessClient, respx_mock: respx.MockRouter
 ) -> None:
