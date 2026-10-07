@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 from telegram import ForceReply
 
@@ -349,7 +350,9 @@ async def test_expiring_command_no_results(settings: Settings) -> None:
 
 async def test_expiring_command_sorts_and_formats_relative_days(settings: Settings) -> None:
     update = make_update()
-    today = date.today()
+    # Must match expiring_command's own "today" (computed in settings.tz),
+    # not the system/UTC default - otherwise this is flaky near UTC midnight.
+    today = datetime.now(ZoneInfo(settings.tz)).date()
     soon = make_doc(
         id=1,
         title="Soon",

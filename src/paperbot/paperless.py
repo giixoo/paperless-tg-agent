@@ -150,7 +150,7 @@ class TaxonomyCache:
         self._document_types: dict[int, DocumentType] = {}
         self._correspondents: dict[int, Correspondent] = {}
         self._custom_fields: dict[int, CustomFieldDef] = {}
-        self._loaded_at: float = 0.0
+        self._loaded_at: float | None = None
         self._lock = asyncio.Lock()
 
     def _is_hidden(self, name: str) -> bool:
@@ -159,7 +159,17 @@ class TaxonomyCache:
 
     async def refresh(self, *, force: bool = False) -> None:
         async with self._lock:
-            if not force and (time.monotonic() - self._loaded_at) < TAXONOMY_TTL_SECONDS:
+            # `time.monotonic()` is seconds since an arbitrary reference point
+            # (e.g. system boot on Linux), not wall-clock time - on a
+            # freshly-booted CI container it can be well under
+            # TAXONOMY_TTL_SECONDS, so `self._loaded_at is None` must be
+            # checked explicitly rather than relying on the TTL arithmetic
+            # alone to detect "never loaded yet".
+            already_fresh = (
+                self._loaded_at is not None
+                and (time.monotonic() - self._loaded_at) < TAXONOMY_TTL_SECONDS
+            )
+            if not force and already_fresh:
                 return
             tags, types_, correspondents, fields_ = await asyncio.gather(
                 self._client.list_tags_raw(),
@@ -195,10 +205,9 @@ class TaxonomyCache:
             self._loaded_at = time.monotonic()
 
     async def _ensure_loaded(self) -> None:
-        if not self._loaded_at:
-            await self.refresh()
-        else:
-            await self.refresh(force=False)
+        # Both branches used to call refresh(force=False) either way - the
+        # TTL/first-load check already lives inside refresh() itself.
+        await self.refresh()
 
     async def tag_name(self, tag_id: int) -> str | None:
         await self._ensure_loaded()
