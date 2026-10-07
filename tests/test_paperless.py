@@ -495,3 +495,109 @@ async def test_find_by_custom_field_query_sends_field_name_grammar(
     request = route.calls.last.request
     assert request.url.params["custom_field_query"] == query
     assert request.url.params["page_size"] == "5"
+
+
+async def test_list_all_documents_pages_through_results(
+    client: PaperlessClient,
+    mock_taxonomy: None,
+    respx_mock: respx.MockRouter,
+) -> None:
+    page1 = {
+        "count": 2,
+        "next": "http://paperless.test/api/documents/?page=2",
+        "previous": None,
+        "results": [{"id": 1, "title": "A", "tags": [], "custom_fields": []}],
+    }
+    page2 = {
+        "count": 2,
+        "next": None,
+        "previous": None,
+        "results": [{"id": 2, "title": "B", "tags": [], "custom_fields": []}],
+    }
+    route = respx_mock.get("http://paperless.test/api/documents/")
+    route.side_effect = [httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+
+    docs = await client.list_all_documents()
+
+    assert [d.id for d in docs] == [1, 2]
+
+
+async def test_get_document_metadata_returns_sizes(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("http://paperless.test/api/documents/412/metadata/").respond(
+        json={"original_size": 12345, "archive_size": 6789}
+    )
+
+    meta = await client.get_document_metadata(412)
+
+    assert meta is not None
+    assert meta.original_size == 12345
+    assert meta.archive_size == 6789
+
+
+async def test_get_document_metadata_returns_none_on_404(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("http://paperless.test/api/documents/999/metadata/").respond(status_code=404)
+
+    assert await client.get_document_metadata(999) is None
+
+
+async def test_add_note_posts_note_body(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post("http://paperless.test/api/documents/412/notes/").respond(json={})
+
+    await client.add_note(412, "From #500: hello")
+
+    request = route.calls.last.request
+    assert json.loads(request.content) == {"note": "From #500: hello"}
+
+
+async def test_trash_document_sends_delete(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.delete("http://paperless.test/api/documents/412/").respond(status_code=204)
+
+    await client.trash_document(412)
+
+    assert route.called
+
+
+async def test_trash_document_raises_on_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.delete("http://paperless.test/api/documents/412/").respond(status_code=400)
+
+    with pytest.raises(PaperlessError):
+        await client.trash_document(412)
+
+
+async def test_restore_from_trash_posts_restore_action(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.post("http://paperless.test/api/trash/").respond(json={})
+
+    restored = await client.restore_from_trash(412)
+
+    assert restored is True
+    request = route.calls.last.request
+    assert json.loads(request.content) == {"documents": [412], "action": "restore"}
+
+
+async def test_restore_from_trash_returns_false_on_404(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post("http://paperless.test/api/trash/").respond(status_code=404)
+
+    assert await client.restore_from_trash(412) is False
+
+
+async def test_restore_from_trash_raises_on_server_error(
+    client: PaperlessClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.post("http://paperless.test/api/trash/").respond(status_code=500)
+
+    with pytest.raises(PaperlessError):
+        await client.restore_from_trash(412)

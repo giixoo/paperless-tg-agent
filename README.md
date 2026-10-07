@@ -2,15 +2,17 @@
 
 A Telegram bot for a self-hosted [Paperless-ngx](https://docs.paperless-ngx.com/) archive:
 full-text search, document cards, file upload/download, `/inbox` triage, expiry
-reminders, and a Claude tool-use agent for natural-language Q&A over your documents.
+reminders, near-duplicate review, and a Claude tool-use agent for
+natural-language Q&A over your documents.
 
-Full requirements: [Spec.md](Spec.md).
+Full requirements: [Spec.md](Spec.md) (v0.1-v0.2) and [Spec-dups.md](Spec-dups.md)
+(milestone 6, near-duplicate review).
 
-**Status:** All milestones (1-5) implemented per Spec.md §10 — config, Paperless
-client, access control, commands (`/help` `/search` `/recent` `/doc` `/inbox`
-`/expiring` `/usage` `/clear`), file upload/download, the Claude agent, and daily
-expiry reminders. See **Known limitations** below before pointing this at a real
-server.
+**Status:** All milestones (1-6) implemented — config, Paperless client, access
+control, commands (`/help` `/search` `/recent` `/doc` `/inbox` `/expiring` `/dups`
+`/usage` `/clear`), file upload/download, the Claude agent, daily expiry
+reminders, and near-duplicate document review (`/dups`, no LLM involved). See
+**Known limitations** below before pointing this at a real server.
 
 ## Setup
 
@@ -71,10 +73,39 @@ All configuration is via environment variables (see `.env.example`).
 | `REMINDER_TIME` | no | `09:00` | Local time, daily |
 | `REMINDER_DAYS` | no | `30` | Warn about documents expiring within N days |
 | `HIDDEN_TAG_PREFIXES` | no | `gpt,sonnet` | Tags hidden from output and the agent |
+| `DUPS_ENABLED` | no | `true` | Enable the daily near-duplicate scan + `/dups` |
+| `DUPS_SCAN_TIME` | no | `03:30` | Local time, daily |
+| `DUPS_THRESHOLD` | no | `0.80` | Minimum text similarity for a candidate pair |
+| `DUPS_NUMBERS_THRESHOLD` | no | `0.70` | Minimum number-token similarity (filters out same-template-different-year forms) |
+| `DUPS_MIN_CHARS` | no | `200` | Documents with less extracted text are not compared |
+| `DUPS_SKIP_TAGS` | no | `gpt-ocr,gpt-auto,sonnet-ocr,sonnet-auto` | Documents carrying one of these (still being OCR'd/classified) are not compared yet |
+| `DUPS_NOTIFY` | no | `true` | Send a message when a scan finds new candidate pairs |
 | `TZ` | no | `Europe/Warsaw` | |
 | `DATA_DIR` | no | `/data` | SQLite location |
 | `HEALTH_PORT` | no | `8080` | `/health` HTTP endpoint |
 | `LOG_LEVEL` | no | `INFO` | |
+
+## Near-duplicate review (`/dups`)
+
+Paperless only finds *exact* duplicates (same checksum). `/dups` finds
+*near*-duplicates — e.g. the same document scanned twice at different
+quality — with pure text/number similarity (Jaccard on word shingles +
+number tokens); no LLM, no cost. A daily scan (`DUPS_SCAN_TIME`) and
+`/dups scan` populate a queue of candidate pairs; review them with:
+
+- `/dups` — show the next open pair (highest similarity first), with
+  download buttons, a ⭐ hint for the likely better copy, and `Keep A` /
+  `Keep B` / `Not duplicates` / `Skip`.
+- `Keep X` compares the kept copy against the other one and, if they differ
+  in tags/correspondent/type/custom fields/notes, shows a checklist to pick
+  what to copy over (`Copy all`, `Copy selected`, `Skip copy`, `Cancel`).
+  Conflicting custom field values are flagged and only copied if explicitly
+  checked.
+- Once applied, the other copy is moved to the Paperless trash (kept there
+  for 30 days) — never permanently deleted immediately.
+- `/dups stats` — open/resolved/dismissed counts and last scan time.
+- `/dups undo` — restore the most recently trashed copy from the trash (the
+  bot lists what was copied, for manual cleanup; it doesn't auto-reverse it).
 
 ## Known limitations
 
@@ -85,9 +116,9 @@ document list/detail shape, the `custom_field_query` grammar — both
 `exists` and `range` confirmed to correctly filter by field *name* — the
 upload task response shape including `related_document` on SUCCESS, the
 `post_document/` response body, and `tags__id__in` for `/inbox`) and is
-pinned by `tests/fixtures/real_*.json` where practical. Two details remain
-unverified — marked with a `TODO(paperless-api)` comment in the code, per
-CLAUDE.md's clean-room/no-guessing policy:
+pinned by `tests/fixtures/real_*.json` where practical. A couple of details
+in that v0.1/v0.2 code remain unverified — marked with a `TODO(paperless-api)`
+comment in the code, per CLAUDE.md's clean-room/no-guessing policy:
 
 - The bulk-edit `modify_tags` parameter shape (the `/inbox` "✅ Done" button
   and tag toggles) — the request looks right but hasn't been confirmed to
@@ -95,6 +126,24 @@ CLAUDE.md's clean-room/no-guessing policy:
 - `update_document` (`PATCH /api/documents/{id}/`, used by the inbox
   correspondent/type/title editing) — standard DRF partial update, but not
   yet confirmed against a real server either.
+
+For `/dups` (near-duplicate review, Spec-dups.md), a few more details are
+marked `TODO(paperless-api)` in `paperbot/paperless.py`:
+
+- `GET /api/documents/{id}/metadata/` field names (`original_size`,
+  `archive_size`) — match the publicly documented serializer but aren't
+  pinned against a real response for this endpoint yet.
+- `POST /api/documents/{id}/notes/` body shape — guessed as `{"note": text}`
+  to mirror how notes come back on the document detail endpoint.
+- `DELETE /api/documents/{id}/` as a soft-delete (trash) and
+  `POST /api/trash/` with `{"documents": [id], "action": "restore"}` for
+  `/dups undo` — both match the documented Paperless-ngx 2.x+ trash API but
+  aren't confirmed against this server.
+
+The exact-duplicate side of the scan (`duplicate_documents` on the document
+list/detail response) *is* confirmed — see `tests/fixtures/real_documents_list.json`
+— so it's used directly instead of the `has_duplicates=true` filter the spec
+originally suggested.
 
 Everything else is tested against fixtures modeled on the public API docs or
 pinned to real server responses (`tests/fixtures/`), with no real network

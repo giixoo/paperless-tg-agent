@@ -48,6 +48,16 @@ class Settings(BaseSettings):
         default_factory=lambda: ["gpt", "sonnet"]
     )
 
+    dups_enabled: bool = True
+    dups_scan_time: str = "03:30"
+    dups_threshold: float = 0.80
+    dups_numbers_threshold: float = 0.70
+    dups_min_chars: int = 200
+    dups_skip_tags: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["gpt-ocr", "gpt-auto", "sonnet-ocr", "sonnet-auto"]
+    )
+    dups_notify: bool = True
+
     tz: str = "Europe/Warsaw"
     data_dir: str = "/data"
     health_port: int = 8080
@@ -63,6 +73,13 @@ class Settings(BaseSettings):
     @field_validator("hidden_tag_prefixes", mode="before")
     @classmethod
     def _parse_hidden_tag_prefixes(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return value
+
+    @field_validator("dups_skip_tags", mode="before")
+    @classmethod
+    def _parse_dups_skip_tags(cls, value: object) -> object:
         if isinstance(value, str):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value

@@ -18,16 +18,18 @@ from telegram.ext import ApplicationBuilder, TypeHandler
 from paperbot.agent.agent import AgentMemory
 from paperbot.budget import BudgetStore, PriceConfig
 from paperbot.config import Settings, load_settings
+from paperbot.dups.db import DupsStore
 from paperbot.health import run_health_server
 from paperbot.paperless import PaperlessClient
 from paperbot.telegram.auth import build_auth_middleware
 from paperbot.telegram.commands import register_bot_commands, register_handlers
 from paperbot.telegram.deps import DEPS_KEY, Deps
+from paperbot.telegram.dups import register_dups_handlers, register_dups_scan_job
 from paperbot.telegram.files import register_file_handlers
 from paperbot.telegram.inbox import register_inbox_handlers
 from paperbot.telegram.keyboards import SearchStateStore
 from paperbot.telegram.reminders import register_reminder_job
-from paperbot.telegram.state import PendingInputStore
+from paperbot.telegram.state import DupsSkipStore, PendingInputStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,7 @@ async def _run(settings: Settings) -> None:
             ),
         )
         agent_memory = AgentMemory(settings.history_turns)
+        dups_store = DupsStore(Path(settings.data_dir) / "dups.sqlite3")
 
         application = ApplicationBuilder().token(settings.telegram_bot_token).build()
         application.bot_data[DEPS_KEY] = Deps(
@@ -74,6 +77,8 @@ async def _run(settings: Settings) -> None:
             budget_store=budget_store,
             agent_memory=agent_memory,
             pending_input=PendingInputStore(),
+            dups_store=dups_store,
+            dups_skip_store=DupsSkipStore(),
         )
         application.add_handler(
             TypeHandler(Update, build_auth_middleware(settings.telegram_allowed_users)), group=-1
@@ -82,6 +87,8 @@ async def _run(settings: Settings) -> None:
         register_file_handlers(application)
         register_inbox_handlers(application)
         register_reminder_job(application, settings)
+        register_dups_handlers(application)
+        register_dups_scan_job(application, settings)
 
         alive = True
 

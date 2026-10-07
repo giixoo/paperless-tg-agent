@@ -19,6 +19,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/doc <id> — document card\n"
             "/inbox — documents in your inbox\n"
             "/expiring [days] — documents expiring soon\n"
+            "/dups — review near-duplicate documents\n"
             "/usage — today's AI usage\n"
             "/clear — reset assistant memory\n\n"
             "Send me a document or photo to upload it, or just ask a question "
@@ -31,6 +32,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/doc <id> — картка документа\n"
             "/inbox — документи у вхідних\n"
             "/expiring [днів] — документи, що скоро закінчуються\n"
+            "/dups — перегляд майже дублікатів\n"
             "/usage — витрати на AI сьогодні\n"
             "/clear — очистити пам'ять асистента\n\n"
             "Надішліть документ або фото, щоб завантажити його, або просто "
@@ -43,6 +45,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/doc <id> — karta dokumentu\n"
             "/inbox — dokumenty w skrzynce\n"
             "/expiring [dni] — dokumenty wygasające wkrótce\n"
+            "/dups — przegląd niemal duplikatów\n"
             "/usage — dzisiejsze zużycie AI\n"
             "/clear — wyczyść pamięć asystenta\n\n"
             "Wyślij dokument lub zdjęcie, aby je przesłać, albo zadaj pytanie "
@@ -55,6 +58,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "/doc <id> — карточка документа\n"
             "/inbox — документы во входящих\n"
             "/expiring [дней] — документы, срок которых скоро истекает\n"
+            "/dups — проверка почти дубликатов\n"
             "/usage — расход AI за сегодня\n"
             "/clear — очистить память ассистента\n\n"
             "Отправьте документ или фото, чтобы загрузить его, либо просто "
@@ -171,13 +175,13 @@ _STRINGS: dict[str, dict[str, str]] = {
     },
     "budget_reached": {
         "en": "Daily AI budget reached. Commands still work: "
-        "/search, /recent, /doc, /inbox, /expiring.",
+        "/search, /recent, /doc, /inbox, /expiring, /dups.",
         "uk": "Денний бюджет AI витрачено. Команди працюють: "
-        "/search, /recent, /doc, /inbox, /expiring.",
+        "/search, /recent, /doc, /inbox, /expiring, /dups.",
         "pl": "Dzienny budżet AI wykorzystany. Komendy wciąż działają: "
-        "/search, /recent, /doc, /inbox, /expiring.",
+        "/search, /recent, /doc, /inbox, /expiring, /dups.",
         "ru": "Дневной бюджет AI исчерпан. Команды работают: "
-        "/search, /recent, /doc, /inbox, /expiring.",
+        "/search, /recent, /doc, /inbox, /expiring, /dups.",
     },
     "memory_cleared": {
         "en": "Assistant memory cleared for this chat.",
@@ -334,6 +338,118 @@ _STRINGS: dict[str, dict[str, str]] = {
         "uk": "— скорочено —",
         "pl": "— skrócono —",
         "ru": "— сокращено —",
+    },
+    "menu_dups": {
+        "en": "Review near-duplicate documents",
+        "uk": "Перегляд майже дублікатів",
+        "pl": "Przegląd niemal duplikatów",
+        "ru": "Проверка почти дубликатов",
+    },
+    "dups_no_open_pairs": {
+        "en": "No open pairs.",
+        "uk": "Немає відкритих пар.",
+        "pl": "Brak otwartych par.",
+        "ru": "Нет открытых пар.",
+    },
+    "dups_scan_result": {
+        "en": "Scan done: {n} new possible duplicate pairs.",
+        "uk": "Сканування завершено: {n} нових можливих пар дублікатів.",
+        "pl": "Skanowanie zakończone: {n} nowych możliwych par duplikatów.",
+        "ru": "Сканирование завершено: {n} новых возможных пар дубликатов.",
+    },
+    "dups_notify_new_pairs": {
+        "en": "{n} possible duplicate pairs. Use /dups",
+        "uk": "{n} можливих пар дублікатів. Використайте /dups",
+        "pl": "{n} możliwych par duplikatów. Użyj /dups",
+        "ru": "{n} возможных пар дубликатов. Используйте /dups",
+    },
+    "dups_stats": {
+        "en": "Open: {open}\nResolved: {resolved}\nNot duplicates: {not_dup}\n"
+        "Last scan: {last_scan}",
+        "uk": "Відкрито: {open}\nВирішено: {resolved}\nНе дублікати: {not_dup}\n"
+        "Останнє сканування: {last_scan}",
+        "pl": "Otwarte: {open}\nRozwiązane: {resolved}\nNie duplikaty: {not_dup}\n"
+        "Ostatnie skanowanie: {last_scan}",
+        "ru": "Открыто: {open}\nРешено: {resolved}\nНе дубликаты: {not_dup}\n"
+        "Последнее сканирование: {last_scan}",
+    },
+    "dups_stats_never": {
+        "en": "never",
+        "uk": "ніколи",
+        "pl": "nigdy",
+        "ru": "никогда",
+    },
+    "dups_undo_none": {
+        "en": "Nothing to undo.",
+        "uk": "Немає що скасовувати.",
+        "pl": "Nie ma czego cofać.",
+        "ru": "Нечего отменять.",
+    },
+    "dups_undo_failed": {
+        "en": "Could not restore #{id} from trash.",
+        "uk": "Не вдалося відновити #{id} з кошика.",
+        "pl": "Nie udało się przywrócić #{id} z kosza.",
+        "ru": "Не удалось восстановить #{id} из корзины.",
+    },
+    "dups_undo_restored": {
+        "en": "Restored #{loser} from trash.\nPreviously copied to #{survivor}: {items}",
+        "uk": "Відновлено #{loser} з кошика.\nРаніше скопійовано в #{survivor}: {items}",
+        "pl": "Przywrócono #{loser} z kosza.\nWcześniej skopiowano do #{survivor}: {items}",
+        "ru": "Восстановлено #{loser} из корзины.\nРанее скопировано в #{survivor}: {items}",
+    },
+    "dups_cancelled": {
+        "en": "Cancelled. Nothing changed.",
+        "uk": "Скасовано. Нічого не змінено.",
+        "pl": "Anulowano. Nic się nie zmieniło.",
+        "ru": "Отменено. Ничего не изменилось.",
+    },
+    "dups_apply_failed": {
+        "en": "Something went wrong applying changes. The pair stays open.",
+        "uk": "Під час застосування змін сталася помилка. Пара залишається відкритою.",
+        "pl": "Wystąpił błąd podczas stosowania zmian. Para pozostaje otwarta.",
+        "ru": "Произошла ошибка при применении изменений. Пара остаётся открытой.",
+    },
+    "dups_kept": {
+        "en": "Kept #{survivor}. Moved #{loser} to trash. Copied: {items}.",
+        "uk": "Залишено #{survivor}. Переміщено #{loser} у кошик. Скопійовано: {items}.",
+        "pl": "Zachowano #{survivor}. Przeniesiono #{loser} do kosza. Skopiowano: {items}.",
+        "ru": "Оставлено #{survivor}. Перемещено #{loser} в корзину. Скопировано: {items}.",
+    },
+    "dups_kept_nothing": {
+        "en": "Kept #{survivor}. Moved #{loser} to trash. Nothing copied.",
+        "uk": "Залишено #{survivor}. Переміщено #{loser} у кошик. Нічого не скопійовано.",
+        "pl": "Zachowano #{survivor}. Przeniesiono #{loser} do kosza. Nic nie skopiowano.",
+        "ru": "Оставлено #{survivor}. Перемещено #{loser} в корзину. Ничего не скопировано.",
+    },
+    "dups_selection_header": {
+        "en": "What should I copy from #{loser}?",
+        "uk": "Що скопіювати з #{loser}?",
+        "pl": "Co skopiować z #{loser}?",
+        "ru": "Что скопировать из #{loser}?",
+    },
+    "dups_warn_pages": {
+        "en": "page counts differ",
+        "uk": "кількість сторінок відрізняється",
+        "pl": "liczba stron się różni",
+        "ru": "количество страниц отличается",
+    },
+    "dups_warn_dates": {
+        "en": "created dates differ",
+        "uk": "дати створення відрізняються",
+        "pl": "daty utworzenia się różnią",
+        "ru": "даты создания отличаются",
+    },
+    "dups_warn_numbers": {
+        "en": "numbers differ",
+        "uk": "числа відрізняються",
+        "pl": "liczby się różnią",
+        "ru": "числа отличаются",
+    },
+    "dups_similarity": {
+        "en": "Text similarity: {text}% · Number similarity: {num}%",
+        "uk": "Схожість тексту: {text}% · Схожість чисел: {num}%",
+        "pl": "Podobieństwo tekstu: {text}% · Podobieństwo liczb: {num}%",
+        "ru": "Схожесть текста: {text}% · Схожесть чисел: {num}%",
     },
 }
 

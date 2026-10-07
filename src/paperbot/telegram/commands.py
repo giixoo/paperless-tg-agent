@@ -50,7 +50,7 @@ USAGE_HISTORY_DAYS = 7
 EXPIRING_DEFAULT_DAYS = 60
 EXPIRING_LIMIT = 50
 
-_COMMAND_NAMES = ("help", "search", "recent", "doc", "inbox", "expiring", "usage", "clear")
+_COMMAND_NAMES = ("help", "search", "recent", "doc", "inbox", "expiring", "dups", "usage", "clear")
 
 
 def parse_ddmmyyyy(value: str) -> date | None:

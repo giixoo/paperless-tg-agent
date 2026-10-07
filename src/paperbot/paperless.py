@@ -85,6 +85,21 @@ class Document:
     """Raw tag ids, unlike `tags` (names, with hidden-prefix tags filtered
     out). Needed by the inbox "🤖 AI" menu to show/toggle workflow tags,
     which are deliberately excluded from `tags`."""
+    custom_fields_raw: list[dict[str, Any]] = field(default_factory=list)
+    """Raw `[{"field": id, "value": ...}, ...]` entries, unlike
+    `custom_fields` (name -> formatted display string). Needed by the
+    near-duplicate metadata-copy flow (SPEC-dups §5.2), which PATCHes
+    `custom_fields` by field id and must preserve entries it isn't touching."""
+    notes_list: list[str] = field(default_factory=list)
+    """Individual note texts, unlike `notes` (all of them joined into one
+    display string). Needed by the near-duplicate metadata-copy flow, which
+    copies each of the loser's notes to the survivor as a separate note."""
+    mime_type: str | None = None
+    duplicate_documents: list[int] = field(default_factory=list)
+    """Exact-duplicate document ids. Confirmed against a real v3.2.x server
+    response (`tests/fixtures/real_documents_list.json`) — present directly
+    on both the list and detail endpoints, so no separate `has_duplicates`
+    filter call is needed to find exact-duplicate pairs."""
 
 
 @dataclass(slots=True)
@@ -92,6 +107,20 @@ class TaskResult:
     status: str
     result: str | None
     related_document: int | None
+
+
+@dataclass(slots=True)
+class DocumentMetadata:
+    """`GET /api/documents/{id}/metadata/` response (SPEC-dups §3.1).
+
+    TODO(paperless-api): field names (`original_size`, `archive_size`) match
+    the publicly documented metadata serializer but aren't yet pinned against
+    a real server response for this endpoint specifically — ask the user for
+    a real sample if the near-duplicate pair card shows implausible sizes.
+    """
+
+    original_size: int | None
+    archive_size: int | None
 
 
 def _parse_created(value: str | None) -> date | None:
@@ -112,6 +141,12 @@ def _extract_notes(value: object) -> str | None:
         return None
     texts = [n["note"] for n in value if isinstance(n, dict) and isinstance(n.get("note"), str)]
     return "\n".join(texts) if texts else None
+
+
+def _extract_notes_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [n["note"] for n in value if isinstance(n, dict) and isinstance(n.get("note"), str)]
 
 
 _MONETARY_RE = re.compile(r"^([A-Z]{3})(-?\d+(?:\.\d+)?)$")
@@ -433,6 +468,10 @@ class PaperlessClient:
             page_count=raw.get("page_count"),
             snippet=search_hit.get("highlights"),
             tag_ids=list(raw.get("tags", [])),
+            custom_fields_raw=list(raw.get("custom_fields", [])),
+            notes_list=_extract_notes_list(raw.get("notes")),
+            mime_type=raw.get("mime_type"),
+            duplicate_documents=list(raw.get("duplicate_documents", [])),
         )
 
     async def search_documents(
@@ -468,6 +507,76 @@ class PaperlessClient:
             "/api/documents/", params={"ordering": "-created", "page_size": limit}
         )
         return [await self._to_document(r) for r in data.get("results", [])]
+
+    async def list_all_documents(self) -> list[Document]:
+        """Fetch every document (SPEC-dups §3.1), for the near-duplicate
+        scan. Uses paging like `TaxonomyCache`'s list_* methods."""
+        raws = await self._list_all_raw("/api/documents/")
+        return [await self._to_document(r) for r in raws]
+
+    async def get_document_metadata(self, doc_id: int) -> DocumentMetadata | None:
+        """`GET /api/documents/{id}/metadata/` (SPEC-dups §3.1/§7,
+        TODO(paperless-api): see `DocumentMetadata`)."""
+        try:
+            data = await self._get_json(f"/api/documents/{doc_id}/metadata/")
+        except PaperlessError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        return DocumentMetadata(
+            original_size=data.get("original_size"), archive_size=data.get("archive_size")
+        )
+
+    async def add_note(self, doc_id: int, text: str) -> None:
+        """`POST /api/documents/{id}/notes/` (SPEC-dups §4/§7).
+
+        TODO(paperless-api): body shape guessed as `{"note": text}` to match
+        the shape notes come back in on the document detail endpoint
+        (`{"id", "note", "created", ...}`); not yet confirmed against a real
+        server.
+        """
+        await self._post_json(f"/api/documents/{doc_id}/notes/", {"note": text})
+
+    async def trash_document(self, doc_id: int) -> None:
+        """`DELETE /api/documents/{id}/` moves the document to the Paperless
+        trash rather than permanently deleting it (SPEC-dups §5.4/§7,
+        TODO(paperless-api): confirmed as documented trash behaviour on
+        Paperless-ngx 2.x+, not yet verified against this server)."""
+        url = f"{str(self._settings.paperless_url).rstrip('/')}/api/documents/{doc_id}/"
+        try:
+            resp = await self._http.delete(url, headers=self._headers(), timeout=_DEFAULT_TIMEOUT)
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error trashing document #{doc_id}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"trash_document #{doc_id} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
+
+    async def restore_from_trash(self, doc_id: int) -> bool:
+        """`POST /api/trash/` with `{"documents": [id], "action": "restore"}`
+        (SPEC-dups §5.5/§7, TODO(paperless-api): endpoint and body shape not
+        yet confirmed against a real server). Returns False on a 400/404
+        (e.g. the document isn't in the trash), raises on other errors.
+        """
+        url = f"{str(self._settings.paperless_url).rstrip('/')}/api/trash/"
+        try:
+            resp = await self._http.post(
+                url,
+                json={"documents": [doc_id], "action": "restore"},
+                headers=self._headers(),
+                timeout=_DEFAULT_TIMEOUT,
+            )
+        except httpx.TransportError as exc:
+            raise PaperlessError(f"network error restoring document #{doc_id}: {exc}") from exc
+        if resp.status_code in (400, 404):
+            return False
+        if resp.status_code >= 400:
+            raise PaperlessError(
+                f"restore_from_trash #{doc_id} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
+        return True
 
     async def find_by_custom_field_query(
         self, custom_field_query_json: str, limit: int

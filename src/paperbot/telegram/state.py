@@ -20,3 +20,21 @@ class PendingInputStore:
 
     def clear(self, chat_id: int) -> None:
         self._pending.pop(chat_id, None)
+
+
+class DupsSkipStore:
+    """Per-chat set of near-duplicate pair ids skipped in the current
+    `/dups` review session (SPEC-dups §4/§5.1 "Skip" button) — in-memory,
+    process-lifetime, same pattern as `PendingInputStore`."""
+
+    def __init__(self) -> None:
+        self._skipped: dict[int, set[int]] = {}
+
+    def get(self, chat_id: int) -> set[int]:
+        return self._skipped.get(chat_id, set())
+
+    def add(self, chat_id: int, pair_id: int) -> None:
+        self._skipped.setdefault(chat_id, set()).add(pair_id)
+
+    def clear(self, chat_id: int) -> None:
+        self._skipped.pop(chat_id, None)
