@@ -40,6 +40,7 @@ _COPY_ALL = "ca"
 _COPY_SEL = "cs"
 _NO_COPY = "nc"
 _CANCEL = "cc"
+_NEXT = "nx"
 
 # No per-user language stored for the background scan job's broadcast
 # message, same reasoning as `reminders.py`'s REMINDER_LANG.
@@ -179,6 +180,12 @@ def _pair_keyboard(pair_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton("Not duplicates", callback_data=_encode(_NOT_DUP, pair_id))],
             [InlineKeyboardButton("Skip", callback_data=_encode(_SKIP, pair_id))],
         ]
+    )
+
+
+def _next_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Next dup", callback_data=_encode(_NEXT, 0))]]
     )
 
 
@@ -465,6 +472,17 @@ async def keep_b_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _keep_callback(update, context, side="B")
 
 
+async def next_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The "Next dup" button shown after a pair is resolved, when more open
+    pairs remain."""
+    query = update.callback_query
+    chat = update.effective_chat
+    if query is None or chat is None:
+        return
+    await query.answer()
+    await _show_next_pair(chat.id, context.bot, get_deps(context), _lang(update))
+
+
 # --- selection screen callbacks -------------------------------------------------
 
 
@@ -608,11 +626,11 @@ async def _finalize(
     """SPEC-dups §5.4 apply order: metadata first, trash only on success."""
     assert deps.dups_store is not None
 
-    async def _report(text: str) -> None:
+    async def _report(text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         if edit_query is not None:
-            await edit_query.edit_message_text(text)
+            await edit_query.edit_message_text(text, reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, reply_markup=reply_markup)
 
     try:
         applied = await apply_selected_items(deps.paperless, survivor, loser.id, items, selected)
@@ -636,7 +654,13 @@ async def _finalize(
         text = t("dups_kept", lang, survivor=survivor.id, loser=loser.id, items=", ".join(applied))
     else:
         text = t("dups_kept_nothing", lang, survivor=survivor.id, loser=loser.id)
-    await _report(text)
+
+    skip_ids = deps.dups_skip_store.get(chat_id)
+    next_pair = await deps.dups_store.next_open_pair(skip_ids)
+    if next_pair is not None:
+        await _report(text, reply_markup=_next_keyboard())
+    else:
+        await _report(f"{text}\n\n{t('dups_all_resolved', lang)}")
 
 
 # --- scheduling / registration --------------------------------------------------
@@ -740,3 +764,4 @@ def register_dups_handlers(application: Application[Any, Any, Any, Any, Any, Any
     application.add_handler(
         CallbackQueryHandler(cancel_callback, pattern=rf"^{_PREFIX}:{_CANCEL}:")
     )
+    application.add_handler(CallbackQueryHandler(next_callback, pattern=rf"^{_PREFIX}:{_NEXT}:"))

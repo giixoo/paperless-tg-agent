@@ -107,7 +107,9 @@ Review pairs with:
   Conflicting custom field values are flagged and only copied if explicitly
   checked.
 - Once applied, the other copy is moved to the Paperless trash (kept there
-  for 30 days) — never permanently deleted immediately.
+  for 30 days) — never permanently deleted immediately. The confirmation
+  message then shows a `Next dup` button if more pairs are open, or
+  `All dups resolved` if that was the last one.
 - `/dups stats` — open/resolved/dismissed counts and last scan time.
 - `/dups undo` — restore the most recently trashed copy from the trash (the
   bot lists what was copied, for manual cleanup; it doesn't auto-reverse it).

@@ -445,6 +445,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "liczby się różnią",
         "ru": "числа отличаются",
     },
+    "dups_all_resolved": {
+        "en": "All dups resolved.",
+        "uk": "Усі дублікати опрацьовано.",
+        "pl": "Wszystkie duplikaty rozwiązane.",
+        "ru": "Все дубликаты обработаны.",
+    },
     "dups_similarity": {
         "en": "Text similarity: {text}% · Number similarity: {num}%",
         "uk": "Схожість тексту: {text}% · Схожість чисел: {num}%",

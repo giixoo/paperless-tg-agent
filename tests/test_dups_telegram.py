@@ -528,8 +528,65 @@ async def test_apply_order_does_not_trash_loser_when_metadata_step_fails(tmp_pat
     assert pair is not None
     assert pair.status == "open"
     update.callback_query.edit_message_text.assert_awaited_once_with(
-        "Something went wrong applying changes. The pair stays open."
+        "Something went wrong applying changes. The pair stays open.", reply_markup=None
     )
+
+
+# --- "Next dup" / "All dups resolved" ---------------------------------------------
+
+
+async def test_finalize_shows_next_dup_button_when_pairs_remain(tmp_path: Path) -> None:
+    settings = make_settings()
+    store = make_store(tmp_path)
+    pair_id = await store.upsert_pair(1, 2, 0.9, 0.9)
+    other_pair_id = await store.upsert_pair(3, 4, 0.85, 0.9)
+    assert pair_id is not None and other_pair_id is not None
+    paperless = FakePaperless(docs={1: make_doc(id=1), 2: make_doc(id=2)})
+    context = make_context(settings, paperless, store)
+    update = make_callback_update(f"d:kA:{pair_id}")
+
+    await dups.keep_a_callback(update, context)
+
+    text = context.bot.send_message.call_args.args[1]
+    assert "All dups resolved" not in text
+    keyboard = context.bot.send_message.call_args.kwargs["reply_markup"]
+    assert keyboard is not None
+    button_texts = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert "Next dup" in button_texts
+
+
+async def test_finalize_shows_all_resolved_when_no_pairs_remain(tmp_path: Path) -> None:
+    settings = make_settings()
+    store = make_store(tmp_path)
+    pair_id = await store.upsert_pair(1, 2, 0.9, 0.9)
+    assert pair_id is not None
+    paperless = FakePaperless(docs={1: make_doc(id=1), 2: make_doc(id=2)})
+    context = make_context(settings, paperless, store)
+    update = make_callback_update(f"d:kA:{pair_id}")
+
+    await dups.keep_a_callback(update, context)
+
+    text = context.bot.send_message.call_args.args[1]
+    assert "All dups resolved" in text
+    assert context.bot.send_message.call_args.kwargs["reply_markup"] is None
+
+
+async def test_next_callback_shows_next_pair_card(tmp_path: Path) -> None:
+    settings = make_settings()
+    store = make_store(tmp_path)
+    await store.upsert_pair(1, 2, 0.9, 0.9)
+    paperless = FakePaperless(
+        docs={1: make_doc(id=1, title="Invoice A"), 2: make_doc(id=2, title="Invoice B")}
+    )
+    context = make_context(settings, paperless, store)
+    update = make_callback_update("d:nx:0")
+
+    await dups.next_callback(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    text = context.bot.send_message.call_args.args[1]
+    assert "Invoice A" in text
+    assert "Invoice B" in text
 
 
 # --- scheduled scan / deferred notify --------------------------------------------
