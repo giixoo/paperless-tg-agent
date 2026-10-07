@@ -327,6 +327,13 @@ server surfaced several UX issues. All of the below ship together as v0.2.
   Paperless" link is a real hyperlink, across the search/doc/recent/
   expiring/inbox card builders. Not a full redesign — field labels and
   error/usage messages stay plain text.
+- **Agent replies get download/preview buttons for documents it actually
+  cites**: the agent's reply text is scanned for `#id` citations; any id
+  that a tool call returned real data for *this turn* (never a
+  hallucinated or stale one) gets a `[📄 #id] [👁 #id]` row — 📄 downloads
+  it (same as everywhere else), 👁 sends a new message with the full
+  `/doc`-style card. `run_agent` now returns an `AgentResult(text,
+  mentioned_docs)` instead of a bare string.
 
 New files beyond §8's v0.1 layout: `telegram/inbox.py` (the inbox editing
 feature — `/inbox` moved here from `commands.py`) and `telegram/state.py`

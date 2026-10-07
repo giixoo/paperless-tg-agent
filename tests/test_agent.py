@@ -136,7 +136,7 @@ async def test_end_turn_immediately_returns_text(settings: Settings, tmp_path: P
     budget = make_budget_store(tmp_path)
     memory = AgentMemory(settings.history_turns)
 
-    answer = await run_agent(
+    result = await run_agent(
         chat_id=1,
         user_text="hi",
         lang="en",
@@ -148,7 +148,8 @@ async def test_end_turn_immediately_returns_text(settings: Settings, tmp_path: P
         send_document_callback=noop_send_document,
     )
 
-    assert answer == "Hello there"
+    assert result.text == "Hello there"
+    assert result.mentioned_docs == []
     assert len(client.messages.calls) == 1
     assert memory.history(1) == [("user", "hi"), ("assistant", "Hello there")]
 
@@ -169,7 +170,7 @@ async def test_tool_use_then_end_turn(settings: Settings, tmp_path: Path) -> Non
     memory = AgentMemory(settings.history_turns)
     paperless = FakePaperless(search_results=([make_doc()], 1))
 
-    answer = await run_agent(
+    result = await run_agent(
         chat_id=1,
         user_text="find my insurance",
         lang="en",
@@ -181,7 +182,10 @@ async def test_tool_use_then_end_turn(settings: Settings, tmp_path: Path) -> Non
         send_document_callback=noop_send_document,
     )
 
-    assert answer == "Found #412"
+    assert result.text == "Found #412"
+    # the reply cites #412, and search_documents returned data for it this
+    # turn - so it's offered as a mentioned_doc (-> download/preview buttons)
+    assert result.mentioned_docs == [(412, "Car insurance 2026")]
     assert len(client.messages.calls) == 2
 
     # the second call's messages include the tool_result for t1
@@ -254,7 +258,7 @@ async def test_budget_reached_skips_api_call(settings: Settings, tmp_path: Path)
     )
     memory = AgentMemory(settings.history_turns)
 
-    answer = await run_agent(
+    result = await run_agent(
         chat_id=1,
         user_text="hi",
         lang="en",
@@ -266,7 +270,8 @@ async def test_budget_reached_skips_api_call(settings: Settings, tmp_path: Path)
         send_document_callback=noop_send_document,
     )
 
-    assert "budget" in answer.lower()
+    assert "budget" in result.text.lower()
+    assert result.mentioned_docs == []
     assert client.messages.calls == []
 
 
@@ -286,7 +291,7 @@ async def test_max_steps_exhausted_forces_final_call_without_tools(
     budget = make_budget_store(tmp_path)
     memory = AgentMemory(settings.history_turns)
 
-    answer = await run_agent(
+    result = await run_agent(
         chat_id=1,
         user_text="hi",
         lang="en",
@@ -298,7 +303,7 @@ async def test_max_steps_exhausted_forces_final_call_without_tools(
         send_document_callback=noop_send_document,
     )
 
-    assert answer == "final answer"
+    assert result.text == "final answer"
     assert len(client.messages.calls) == 2
     assert "tools" not in client.messages.calls[1]
 
@@ -309,7 +314,7 @@ async def test_api_error_returns_friendly_message(settings: Settings, tmp_path: 
     budget = make_budget_store(tmp_path)
     memory = AgentMemory(settings.history_turns)
 
-    answer = await run_agent(
+    result = await run_agent(
         chat_id=1,
         user_text="hi",
         lang="en",
@@ -321,7 +326,7 @@ async def test_api_error_returns_friendly_message(settings: Settings, tmp_path: 
         send_document_callback=noop_send_document,
     )
 
-    assert "wrong" in answer.lower() or "error" in answer.lower()
+    assert "wrong" in result.text.lower() or "error" in result.text.lower()
     # a failed call must not be recorded into conversation memory
     assert memory.history(1) == []
 
@@ -383,3 +388,67 @@ async def test_recent_docs_cap_at_ten() -> None:
     assert len(docs) == 10
     assert docs[0][0] == 3  # oldest two (1, 2) evicted
     assert docs[-1][0] == 12
+
+
+# --- mentioned_docs extraction -------------------------------------------------
+
+
+async def test_mentioned_docs_ignores_ids_not_touched_this_turn(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """The model could cite a stale/hallucinated id in its own text; only
+    ids a tool call actually returned data for this turn are offered."""
+    client = FakeAnthropicClient(
+        [FakeMessage(content=[FakeTextBlock(text="See #999 for details")], stop_reason="end_turn")]
+    )
+    budget = make_budget_store(tmp_path)
+    memory = AgentMemory(settings.history_turns)
+
+    result = await run_agent(
+        chat_id=1,
+        user_text="hi",
+        lang="en",
+        anthropic_client=client,  # type: ignore[arg-type]
+        settings=settings,
+        paperless=FakePaperless(),  # type: ignore[arg-type]
+        budget_store=budget,
+        memory=memory,
+        send_document_callback=noop_send_document,
+    )
+
+    assert result.mentioned_docs == []
+
+
+async def test_mentioned_docs_preserves_first_mention_order_and_dedupes(
+    settings: Settings, tmp_path: Path
+) -> None:
+    client = FakeAnthropicClient(
+        [
+            FakeMessage(
+                content=[FakeToolUseBlock(id="t1", name="search_documents", input={"query": "x"})],
+                stop_reason="tool_use",
+            ),
+            FakeMessage(
+                content=[FakeTextBlock(text="#500 and #412 (also #500 again) match")],
+                stop_reason="end_turn",
+            ),
+        ]
+    )
+    budget = make_budget_store(tmp_path)
+    memory = AgentMemory(settings.history_turns)
+    docs = [make_doc(id=412, title="Car insurance 2026"), make_doc(id=500, title="Invoice")]
+    paperless = FakePaperless(search_results=(docs, 2))
+
+    result = await run_agent(
+        chat_id=1,
+        user_text="find stuff",
+        lang="en",
+        anthropic_client=client,  # type: ignore[arg-type]
+        settings=settings,
+        paperless=paperless,  # type: ignore[arg-type]
+        budget_store=budget,
+        memory=memory,
+        send_document_callback=noop_send_document,
+    )
+
+    assert result.mentioned_docs == [(500, "Invoice"), (412, "Car insurance 2026")]

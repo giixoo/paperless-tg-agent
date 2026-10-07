@@ -18,6 +18,7 @@ CALLBACK_DOWNLOAD = "dl"  # dl:<doc_id>
 CALLBACK_INBOX_DONE = "ib"  # ib:<doc_id>
 CALLBACK_SEARCH_EXPAND = "xd"  # xd:<doc_id>
 CALLBACK_SEARCH_COLLAPSE = "cd"  # cd:<doc_id>
+CALLBACK_PREVIEW = "pv"  # pv:<doc_id>
 
 
 @dataclass(slots=True)
@@ -157,3 +158,35 @@ def inbox_done_keyboard(doc_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("✅ Done", callback_data=encode_inbox_done(doc_id))]]
     )
+
+
+def encode_preview(doc_id: int) -> str:
+    data = f"{CALLBACK_PREVIEW}:{doc_id}"
+    assert len(data.encode()) <= 64, "callback_data exceeds 64 bytes"
+    return data
+
+
+def decode_preview(data: str) -> int | None:
+    parts = data.split(":")
+    if len(parts) != 2 or parts[0] != CALLBACK_PREVIEW:
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
+def agent_doc_actions_keyboard(doc_ids: list[int]) -> InlineKeyboardMarkup | None:
+    """One row per document the agent's reply cites: [📄 #id] [👁 #id]
+    (download / preview), so a plain-text agent answer still gets the
+    same file access as /search and /doc."""
+    if not doc_ids:
+        return None
+    rows = [
+        [
+            InlineKeyboardButton(f"📄 #{doc_id}", callback_data=encode_download(doc_id)),
+            InlineKeyboardButton(f"👁 #{doc_id}", callback_data=encode_preview(doc_id)),
+        ]
+        for doc_id in doc_ids
+    ]
+    return InlineKeyboardMarkup(rows)

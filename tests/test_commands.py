@@ -6,8 +6,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
+import pytest
 from telegram import ForceReply
 
+from paperbot.agent.agent import AgentResult
 from paperbot.config import Settings
 from paperbot.paperless import Document
 from paperbot.telegram import commands
@@ -207,6 +209,34 @@ async def test_search_collapse_callback_shows_summary_card(settings: Settings) -
     assert "▼ Details" in [b.text for row in kwargs["reply_markup"].inline_keyboard for b in row]
 
 
+async def test_preview_callback_sends_new_message_with_full_card(settings: Settings) -> None:
+    update = make_callback_update("pv:412")
+    doc = make_doc()
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.preview_callback(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    context.bot.send_message.assert_awaited_once()
+    args, kwargs = context.bot.send_message.call_args
+    assert args[0] == update.effective_chat.id
+    assert "<b>#412 Car insurance 2026</b>" in args[1]
+    assert kwargs["parse_mode"] is not None
+
+
+async def test_preview_callback_doc_not_found(settings: Settings) -> None:
+    update = make_callback_update("pv:999")
+    paperless = FakePaperless(detail=None)
+    context = make_context(settings, paperless)
+
+    await commands.preview_callback(update, context)
+
+    context.bot.send_message.assert_awaited_once_with(
+        update.effective_chat.id, "Document #999 not found."
+    )
+
+
 async def test_text_handler_continues_pending_search(settings: Settings) -> None:
     chat_id = 555
     search_update = make_update(chat_id=chat_id)
@@ -309,6 +339,41 @@ async def test_text_handler_pending_doc_with_invalid_input(settings: Settings) -
     await commands.text_handler(text_update, context)
 
     text_update.message.reply_text.assert_awaited_once_with("Usage: /doc <id>")
+
+
+async def test_text_handler_attaches_doc_buttons_for_mentioned_docs(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    update = make_update()
+    update.message.text = "when does my insurance expire?"
+    context = make_context(settings, FakePaperless(), args=[])
+    agent_result = AgentResult(text="It expires #412 soon", mentioned_docs=[(412, "x")])
+    monkeypatch.setattr(commands, "run_agent", AsyncMock(return_value=agent_result))
+
+    await commands.text_handler(update, context)
+
+    update.message.reply_text.assert_awaited_once()
+    args, kwargs = update.message.reply_text.call_args
+    assert args[0] == "It expires #412 soon"
+    keyboard = kwargs["reply_markup"]
+    button_texts = [b.text for row in keyboard.inline_keyboard for b in row]
+    assert "📄 #412" in button_texts
+    assert "👁 #412" in button_texts
+
+
+async def test_text_handler_no_buttons_when_nothing_mentioned(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    update = make_update()
+    update.message.text = "hello"
+    context = make_context(settings, FakePaperless(), args=[])
+    monkeypatch.setattr(
+        commands, "run_agent", AsyncMock(return_value=AgentResult(text="Hi there!"))
+    )
+
+    await commands.text_handler(update, context)
+
+    update.message.reply_text.assert_awaited_once_with("Hi there!", reply_markup=None)
 
 
 # --- /recent ----------------------------------------------------------------
