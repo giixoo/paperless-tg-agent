@@ -192,7 +192,9 @@ async def test_search_expand_callback_shows_full_card(settings: Settings) -> Non
     update.callback_query.answer.assert_awaited_once()
     args, kwargs = update.callback_query.edit_message_text.call_args
     assert "Open in Paperless" in args[0]
-    assert "▲ Collapse" in [b.text for row in kwargs["reply_markup"].inline_keyboard for b in row]
+    button_texts = [b.text for row in kwargs["reply_markup"].inline_keyboard for b in row]
+    assert "▲ Collapse" in button_texts
+    assert "📝" in button_texts
 
 
 async def test_search_collapse_callback_shows_summary_card(settings: Settings) -> None:
@@ -223,6 +225,59 @@ async def test_preview_callback_sends_new_message_with_full_card(settings: Setti
     assert args[0] == update.effective_chat.id
     assert "<b>#412 Car insurance 2026</b>" in args[1]
     assert kwargs["parse_mode"] is not None
+
+
+async def test_content_callback_sends_text_preview(settings: Settings) -> None:
+    update = make_callback_update("pc:412")
+    doc = make_doc(content="Full OCR text goes here.")
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.content_callback(update, context)
+
+    update.callback_query.answer.assert_awaited_once()
+    args, kwargs = context.bot.send_message.call_args
+    assert args[0] == update.effective_chat.id
+    assert "<b>#412 Car insurance 2026</b>" in args[1]
+    assert "<pre>Full OCR text goes here.</pre>" in args[1]
+    assert kwargs["parse_mode"] is not None
+
+
+async def test_content_callback_truncates_long_content(settings: Settings) -> None:
+    update = make_callback_update("pc:412")
+    doc = make_doc(content="x" * 5000)
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.content_callback(update, context)
+
+    text = context.bot.send_message.call_args[0][1]
+    assert len(text) < 4096
+    assert "— truncated —" in text
+
+
+async def test_content_callback_no_content(settings: Settings) -> None:
+    update = make_callback_update("pc:412")
+    doc = make_doc(content=None)
+    paperless = FakePaperless(detail=doc)
+    context = make_context(settings, paperless)
+
+    await commands.content_callback(update, context)
+
+    text = context.bot.send_message.call_args[0][1]
+    assert "No extracted text" in text
+
+
+async def test_content_callback_doc_not_found(settings: Settings) -> None:
+    update = make_callback_update("pc:999")
+    paperless = FakePaperless(detail=None)
+    context = make_context(settings, paperless)
+
+    await commands.content_callback(update, context)
+
+    context.bot.send_message.assert_awaited_once_with(
+        update.effective_chat.id, "Document #999 not found."
+    )
 
 
 async def test_preview_callback_doc_not_found(settings: Settings) -> None:
@@ -359,6 +414,7 @@ async def test_text_handler_attaches_doc_buttons_for_mentioned_docs(
     button_texts = [b.text for row in keyboard.inline_keyboard for b in row]
     assert "📄 #412" in button_texts
     assert "👁 #412" in button_texts
+    assert "📝 #412" in button_texts
 
 
 async def test_text_handler_no_buttons_when_nothing_mentioned(

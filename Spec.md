@@ -327,13 +327,17 @@ server surfaced several UX issues. All of the below ship together as v0.2.
   Paperless" link is a real hyperlink, across the search/doc/recent/
   expiring/inbox card builders. Not a full redesign — field labels and
   error/usage messages stay plain text.
-- **Agent replies get download/preview buttons for documents it actually
-  cites**: the agent's reply text is scanned for `#id` citations; any id
-  that a tool call returned real data for *this turn* (never a
-  hallucinated or stale one) gets a `[📄 #id] [👁 #id]` row — 📄 downloads
-  it (same as everywhere else), 👁 sends a new message with the full
-  `/doc`-style card. `run_agent` now returns an `AgentResult(text,
-  mentioned_docs)` instead of a bare string.
+- **Agent replies get download/preview/content buttons for documents it
+  actually cites**: the agent's reply text is scanned for `#id` citations;
+  any id that a tool call returned real data for *this turn* (never a
+  hallucinated or stale one) gets a `[📄 #id] [👁 #id] [📝 #id]` row — 📄
+  downloads it (same as everywhere else), 👁 sends a new message with the
+  full `/doc`-style card (metadata), 📝 sends a new message with the
+  document's extracted text (capped at `min(DOC_CONTENT_MAX_CHARS, 3500)`
+  chars — Telegram's hard 4096-char message limit otherwise risks a send
+  failure regardless of that setting). `run_agent` now returns an
+  `AgentResult(text, mentioned_docs)` instead of a bare string. `/search`
+  result cards also gained the same 📝 button alongside Download/Details.
 
 New files beyond §8's v0.1 layout: `telegram/inbox.py` (the inbox editing
 feature — `/inbox` moved here from `commands.py`) and `telegram/state.py`
