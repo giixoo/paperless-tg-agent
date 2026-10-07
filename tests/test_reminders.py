@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 from paperbot.config import Settings
 from paperbot.paperless import Document, PaperlessError
@@ -68,7 +69,7 @@ async def test_no_message_sent_when_nothing_expiring(settings: Settings) -> None
 
 
 async def test_sends_one_message_per_allowed_user(settings: Settings) -> None:
-    today = date.today()
+    today = datetime.now(ZoneInfo(settings.tz)).date()
     doc = make_doc(custom_fields={"Expires": (today + timedelta(days=5)).strftime("%d.%m.%Y")})
     paperless = FakePaperless(upcoming=[doc], expired=[])
     context = make_context(settings, paperless)
@@ -82,7 +83,7 @@ async def test_sends_one_message_per_allowed_user(settings: Settings) -> None:
 
 
 async def test_expired_docs_get_warning_marker(settings: Settings) -> None:
-    today = date.today()
+    today = datetime.now(ZoneInfo(settings.tz)).date()
     expired_doc = make_doc(
         id=100, custom_fields={"Expires": (today - timedelta(days=3)).strftime("%d.%m.%Y")}
     )
@@ -106,7 +107,7 @@ async def test_paperless_error_suppresses_send(settings: Settings) -> None:
 
 
 async def test_send_failure_for_one_user_does_not_block_others(settings: Settings) -> None:
-    today = date.today()
+    today = datetime.now(ZoneInfo(settings.tz)).date()
     doc = make_doc(custom_fields={"Expires": (today + timedelta(days=5)).strftime("%d.%m.%Y")})
     paperless = FakePaperless(upcoming=[doc], expired=[])
     context = make_context(settings, paperless)

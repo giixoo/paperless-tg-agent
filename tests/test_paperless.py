@@ -282,6 +282,25 @@ async def test_get_task_returns_none_when_empty(
     assert result is None
 
 
+async def test_taxonomy_loads_on_first_use_even_with_low_monotonic_clock(
+    client: PaperlessClient,
+    mock_taxonomy: None,
+    respx_mock: respx.MockRouter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: time.monotonic() is seconds since an arbitrary reference
+    point (e.g. system boot on Linux), not wall-clock time. On a
+    freshly-booted CI container it can be well under TAXONOMY_TTL_SECONDS,
+    which previously made the very first load think it was already
+    "fresh" and skip fetching entirely, leaving every taxonomy lookup
+    empty."""
+    monkeypatch.setattr("paperbot.paperless.time.monotonic", lambda: 1.0)
+
+    ids = await client.taxonomy.inbox_tag_ids()
+
+    assert ids == [2]
+
+
 async def test_inbox_tag_ids_filters_hidden_and_non_inbox_tags(
     client: PaperlessClient, mock_taxonomy: None, respx_mock: respx.MockRouter
 ) -> None:
