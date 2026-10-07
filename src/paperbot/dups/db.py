@@ -375,6 +375,46 @@ class DupsStore:
     async def set_last_scan_at(self, value: str) -> None:
         await asyncio.to_thread(self._set_last_scan_at_sync, value)
 
+    def _add_pending_notify_sync(self, n: int) -> None:
+        conn = self._connect()
+        try:
+            current = conn.execute(
+                "SELECT value FROM dup_meta WHERE key = 'pending_notify'"
+            ).fetchone()
+            total = int(current[0]) if current else 0
+            conn.execute(
+                "INSERT INTO dup_meta (key, value) VALUES ('pending_notify', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(total + n),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def add_pending_notify(self, n: int) -> None:
+        """Accumulate new-pair counts from automatic scans that happened
+        before the owner's `DUPS_NOTIFY_TIME` (so a notification never
+        arrives in the middle of the night) — see `pop_pending_notify`."""
+        if n > 0:
+            await asyncio.to_thread(self._add_pending_notify_sync, n)
+
+    def _pop_pending_notify_sync(self) -> int:
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT value FROM dup_meta WHERE key = 'pending_notify'").fetchone()
+            conn.execute(
+                "INSERT INTO dup_meta (key, value) VALUES ('pending_notify', '0') "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return int(row[0]) if row else 0
+
+    async def pop_pending_notify(self) -> int:
+        """Read and reset the accumulated pending-notify count."""
+        return await asyncio.to_thread(self._pop_pending_notify_sync)
+
     # --- sessions (SPEC-dups §5.2/§5.3) -------------------------------------
 
     def _save_session_sync(

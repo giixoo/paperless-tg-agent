@@ -643,20 +643,37 @@ async def _finalize(
 
 
 async def scheduled_scan_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs at `DUPS_SCAN_TIME` (default 03:30, shortly after Paperless's own
+    nightly export). Any new pairs found are *not* notified immediately —
+    that would land in the middle of the night — but accumulated for
+    `scheduled_notify_job` to send at a waking hour instead."""
     deps = get_deps(context)
     settings = deps.settings
     if deps.dups_store is None:
         return
     new_count = await scan_once(deps.paperless, deps.dups_store, settings)
     await deps.dups_store.set_last_scan_at(datetime.now(UTC).isoformat())
-    if new_count > 0 and settings.dups_notify:
-        for user_id in settings.telegram_allowed_users:
-            try:
-                await context.bot.send_message(
-                    user_id, t("dups_notify_new_pairs", _NOTIFY_LANG, n=new_count)
-                )
-            except Exception:
-                logger.exception("failed to send dups notification to user %s", user_id)
+    if settings.dups_notify:
+        await deps.dups_store.add_pending_notify(new_count)
+
+
+async def scheduled_notify_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs at `DUPS_NOTIFY_TIME` (default 09:00): sends one message per
+    allowed user for any new pairs accumulated since the last notification,
+    then resets the counter."""
+    deps = get_deps(context)
+    if deps.dups_store is None:
+        return
+    pending = await deps.dups_store.pop_pending_notify()
+    if pending <= 0:
+        return
+    for user_id in deps.settings.telegram_allowed_users:
+        try:
+            await context.bot.send_message(
+                user_id, t("dups_notify_new_pairs", _NOTIFY_LANG, n=pending)
+            )
+        except Exception:
+            logger.exception("failed to send dups notification to user %s", user_id)
 
 
 def register_dups_scan_job(
@@ -669,13 +686,25 @@ def register_dups_scan_job(
     if job_queue is None:
         logger.warning("No JobQueue available; near-duplicate scan not scheduled")
         return
-    hour, minute = (int(p) for p in settings.dups_scan_time.split(":", 1))
+    scan_hour, scan_minute = (int(p) for p in settings.dups_scan_time.split(":", 1))
     job_queue.run_daily(
         scheduled_scan_job,
-        time=time(hour=hour, minute=minute, tzinfo=ZoneInfo(settings.tz)),
+        time=time(hour=scan_hour, minute=scan_minute, tzinfo=ZoneInfo(settings.tz)),
         name="dups_scan",
     )
     logger.info("Scheduled near-duplicate scan at %s %s", settings.dups_scan_time, settings.tz)
+
+    if not settings.dups_notify:
+        return
+    notify_hour, notify_minute = (int(p) for p in settings.dups_notify_time.split(":", 1))
+    job_queue.run_daily(
+        scheduled_notify_job,
+        time=time(hour=notify_hour, minute=notify_minute, tzinfo=ZoneInfo(settings.tz)),
+        name="dups_notify",
+    )
+    logger.info(
+        "Scheduled near-duplicate notification at %s %s", settings.dups_notify_time, settings.tz
+    )
 
 
 def register_dups_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:

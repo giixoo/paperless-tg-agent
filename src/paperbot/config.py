@@ -57,6 +57,7 @@ class Settings(BaseSettings):
         default_factory=lambda: ["gpt-ocr", "gpt-auto", "sonnet-ocr", "sonnet-auto"]
     )
     dups_notify: bool = True
+    dups_notify_time: str = "09:00"
 
     tz: str = "Europe/Warsaw"
     data_dir: str = "/data"

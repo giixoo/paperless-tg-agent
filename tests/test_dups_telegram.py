@@ -530,3 +530,48 @@ async def test_apply_order_does_not_trash_loser_when_metadata_step_fails(tmp_pat
     update.callback_query.edit_message_text.assert_awaited_once_with(
         "Something went wrong applying changes. The pair stays open."
     )
+
+
+# --- scheduled scan / deferred notify --------------------------------------------
+
+
+async def test_scheduled_scan_job_accumulates_pending_notify_without_messaging(
+    tmp_path: Path,
+) -> None:
+    """New pairs from the automatic scan must not be announced immediately
+    (that could land in the middle of the night) - only accumulated for
+    `scheduled_notify_job` to send later."""
+    settings = make_settings()
+    store = make_store(tmp_path)
+    boilerplate = "insurance policy for the car valid until the end of the year. " * 4
+    paperless = FakePaperless(
+        all_docs=[make_doc(id=1, content=boilerplate), make_doc(id=2, content=boilerplate)]
+    )
+    context = make_context(settings, paperless, store)
+
+    await dups.scheduled_scan_job(context)
+
+    context.bot.send_message.assert_not_awaited()
+    assert await store.pop_pending_notify() == 1
+
+
+async def test_scheduled_notify_job_sends_and_resets_pending_count(tmp_path: Path) -> None:
+    settings = make_settings()
+    store = make_store(tmp_path)
+    await store.add_pending_notify(3)
+    context = make_context(settings, FakePaperless(), store)
+
+    await dups.scheduled_notify_job(context)
+
+    context.bot.send_message.assert_awaited_once_with(1, "3 possible duplicate pairs. Use /dups")
+    assert await store.pop_pending_notify() == 0
+
+
+async def test_scheduled_notify_job_does_nothing_when_no_pending(tmp_path: Path) -> None:
+    settings = make_settings()
+    store = make_store(tmp_path)
+    context = make_context(settings, FakePaperless(), store)
+
+    await dups.scheduled_notify_job(context)
+
+    context.bot.send_message.assert_not_awaited()

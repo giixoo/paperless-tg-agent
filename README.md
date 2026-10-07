@@ -80,6 +80,7 @@ All configuration is via environment variables (see `.env.example`).
 | `DUPS_MIN_CHARS` | no | `200` | Documents with less extracted text are not compared |
 | `DUPS_SKIP_TAGS` | no | `gpt-ocr,gpt-auto,sonnet-ocr,sonnet-auto` | Documents carrying one of these (still being OCR'd/classified) are not compared yet |
 | `DUPS_NOTIFY` | no | `true` | Send a message when a scan finds new candidate pairs |
+| `DUPS_NOTIFY_TIME` | no | `09:00` | Local time the automatic scan's notification is sent (deferred so it never lands overnight) |
 | `TZ` | no | `Europe/Warsaw` | |
 | `DATA_DIR` | no | `/data` | SQLite location |
 | `HEALTH_PORT` | no | `8080` | `/health` HTTP endpoint |
@@ -91,7 +92,11 @@ Paperless only finds *exact* duplicates (same checksum). `/dups` finds
 *near*-duplicates — e.g. the same document scanned twice at different
 quality — with pure text/number similarity (Jaccard on word shingles +
 number tokens); no LLM, no cost. A daily scan (`DUPS_SCAN_TIME`) and
-`/dups scan` populate a queue of candidate pairs; review them with:
+`/dups scan` populate a queue of candidate pairs. New pairs found by the
+*automatic* scan aren't announced right away (that could land in the middle
+of the night) — they're held and sent in one message at `DUPS_NOTIFY_TIME`
+instead; `/dups scan` run by hand still reports its result immediately.
+Review pairs with:
 
 - `/dups` — show the next open pair (highest similarity first), with
   download buttons, a ⭐ hint for the likely better copy, and `Keep A` /

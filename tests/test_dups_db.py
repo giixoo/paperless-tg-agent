@@ -153,6 +153,40 @@ async def test_set_last_scan_at_reflected_in_stats(tmp_path: Path) -> None:
     assert stats.last_scan_at == "2026-10-07T03:30:00+00:00"
 
 
+async def test_pending_notify_defaults_to_zero(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+
+    assert await store.pop_pending_notify() == 0
+
+
+async def test_pending_notify_accumulates_across_scans(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+
+    await store.add_pending_notify(2)
+    await store.add_pending_notify(3)
+
+    assert await store.pop_pending_notify() == 5
+
+
+async def test_pop_pending_notify_resets_to_zero(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    await store.add_pending_notify(4)
+
+    first = await store.pop_pending_notify()
+    second = await store.pop_pending_notify()
+
+    assert first == 4
+    assert second == 0
+
+
+async def test_add_pending_notify_ignores_zero(tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+
+    await store.add_pending_notify(0)
+
+    assert await store.pop_pending_notify() == 0
+
+
 # --- sessions ----------------------------------------------------------------
 
 
