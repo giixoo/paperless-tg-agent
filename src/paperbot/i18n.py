@@ -323,6 +323,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "pl": "Tytuł zaktualizowany.",
         "ru": "Название обновлено.",
     },
+    "content_empty": {
+        "en": "No extracted text for this document.",
+        "uk": "Немає розпізнаного тексту для цього документа.",
+        "pl": "Brak rozpoznanego tekstu dla tego dokumentu.",
+        "ru": "Нет распознанного текста для этого документа.",
+    },
+    "content_truncated": {
+        "en": "— truncated —",
+        "uk": "— скорочено —",
+        "pl": "— skrócono —",
+        "ru": "— сокращено —",
+    },
 }
 
 

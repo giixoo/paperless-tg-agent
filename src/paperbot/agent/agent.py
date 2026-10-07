@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,8 +30,21 @@ from paperbot.paperless import PaperlessClient
 logger = logging.getLogger(__name__)
 
 RECENT_DOCS_MAX = 10
+MENTIONED_DOCS_MAX = 5
+
+_MENTION_RE = re.compile(r"#(\d+)")
 
 Role = Literal["user", "assistant"]
+
+
+@dataclass(slots=True)
+class AgentResult:
+    text: str
+    mentioned_docs: list[tuple[int, str]] = field(default_factory=list)
+    """Documents the bot's own reply text cites as "#id" AND that a tool
+    call actually returned data for this turn (so we never offer a
+    download/preview button for a hallucinated or stale id) - used to
+    attach download/preview buttons to the reply."""
 
 
 @dataclass(slots=True)
@@ -83,6 +97,24 @@ def _extract_text(content: list[Any]) -> str:
     return "\n".join(parts).strip()
 
 
+def _extract_mentioned_docs(
+    final_text: str, touched_this_turn: dict[int, str]
+) -> list[tuple[int, str]]:
+    """Doc ids the reply text cites as "#id", in first-mention order,
+    restricted to ids a tool call actually returned this turn."""
+    mentioned: list[tuple[int, str]] = []
+    seen: set[int] = set()
+    for match in _MENTION_RE.finditer(final_text):
+        doc_id = int(match.group(1))
+        if doc_id in seen or doc_id not in touched_this_turn:
+            continue
+        seen.add(doc_id)
+        mentioned.append((doc_id, touched_this_turn[doc_id]))
+        if len(mentioned) >= MENTIONED_DOCS_MAX:
+            break
+    return mentioned
+
+
 async def _record_usage(budget_store: BudgetStore, settings: Settings, usage: Any) -> None:
     await budget_store.record_usage(
         tz_name=settings.tz,
@@ -104,10 +136,10 @@ async def run_agent(
     budget_store: BudgetStore,
     memory: AgentMemory,
     send_document_callback: SendDocumentCallback,
-) -> str:
+) -> AgentResult:
     today = await budget_store.today_usage(settings.tz)
     if today.cost_usd >= settings.daily_budget_usd:
-        return t("budget_reached", lang)
+        return AgentResult(text=t("budget_reached", lang))
 
     now = datetime.now(ZoneInfo(settings.tz))
     system_prompt = build_system_prompt(now, memory.recent_docs(chat_id))
@@ -121,6 +153,7 @@ async def run_agent(
     messages.append({"role": "user", "content": user_text})
 
     final_text: str | None = None
+    touched_this_turn: dict[int, str] = {}
     for _step in range(settings.agent_max_steps):
         try:
             response = await anthropic_client.messages.create(
@@ -132,7 +165,7 @@ async def run_agent(
             )
         except anthropic.APIError as exc:
             logger.warning("Anthropic API error: %s", type(exc).__name__)
-            return t("generic_error", lang)
+            return AgentResult(text=t("generic_error", lang))
 
         await _record_usage(budget_store, settings, response.usage)
         messages.append({"role": "assistant", "content": response.content})
@@ -164,6 +197,7 @@ async def run_agent(
             touched.extend(extract_touched_docs(block.name, result_json))
         if touched:
             memory.touch_docs(chat_id, touched)
+            touched_this_turn.update(touched)
         messages.append({"role": "user", "content": tool_result_blocks})
     else:
         # AGENT_MAX_STEPS tool_use iterations exhausted: ask once more, no tools.
@@ -176,10 +210,11 @@ async def run_agent(
             )
         except anthropic.APIError as exc:
             logger.warning("Anthropic API error: %s", type(exc).__name__)
-            return t("generic_error", lang)
+            return AgentResult(text=t("generic_error", lang))
         await _record_usage(budget_store, settings, response.usage)
         final_text = _extract_text(response.content)
 
     final_text = final_text or ""
     memory.record_turn(chat_id, user_text, final_text)
-    return final_text
+    mentioned_docs = _extract_mentioned_docs(final_text, touched_this_turn)
+    return AgentResult(text=final_text, mentioned_docs=mentioned_docs)

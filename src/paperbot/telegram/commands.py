@@ -30,6 +30,9 @@ from paperbot.telegram.files import send_document_to_chat
 from paperbot.telegram.inbox import handle_rename_input
 from paperbot.telegram.keyboards import (
     SearchState,
+    agent_doc_actions_keyboard,
+    decode_content,
+    decode_preview,
     decode_search_collapse,
     decode_search_expand,
     decode_search_page,
@@ -109,6 +112,25 @@ def _format_doc_card(doc: Document, lang: str, public_url: str) -> str:
     base = public_url.rstrip("/")
     lines.append(f'<a href="{base}/documents/{doc.id}/">{t("field_link", lang)}</a>')
     return "\n".join(lines)
+
+
+# Telegram caps a message at 4096 chars; this leaves headroom for the title
+# header and <pre> tags regardless of how high DOC_CONTENT_MAX_CHARS is set.
+_MAX_CONTENT_PREVIEW_CHARS = 3500
+
+
+def _format_content_preview(doc: Document, max_chars: int, lang: str) -> str:
+    content = (doc.content or "").strip()
+    header = f"<b>#{doc.id} {html.escape(doc.title)}</b>"
+    if not content:
+        return f"{header}\n\n{t('content_empty', lang)}"
+
+    limit = min(max_chars, _MAX_CONTENT_PREVIEW_CHARS)
+    preview = content[:limit]
+    text = f"{header}\n\n<pre>{html.escape(preview)}</pre>"
+    if len(content) > limit:
+        text += f"\n\n{t('content_truncated', lang)}"
+    return text
 
 
 def build_bot_commands(lang: str) -> list[BotCommand]:
@@ -270,6 +292,71 @@ async def search_collapse_callback(update: Update, context: ContextTypes.DEFAULT
     await _render_search_card(query, get_deps(context), doc_id, _lang(update), expanded=False)
 
 
+async def preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The 👁 button on an agent reply: send the full /doc-style card as a
+    new message (the agent's own reply text must stay untouched)."""
+    query = update.callback_query
+    chat = update.effective_chat
+    if query is None or query.data is None or chat is None:
+        return
+    doc_id = decode_preview(query.data)
+    if doc_id is None:
+        await query.answer()
+        return
+
+    lang = _lang(update)
+    deps = get_deps(context)
+    try:
+        doc = await deps.paperless.get_document(doc_id)
+    except PaperlessError:
+        logger.exception("get_document failed (preview)")
+        await query.answer(t("generic_error", lang), show_alert=True)
+        return
+
+    await query.answer()
+    if doc is None:
+        await context.bot.send_message(chat.id, t("doc_not_found", lang, id=doc_id))
+        return
+
+    public_url = str(deps.settings.paperless_public_url_or_default)
+    await context.bot.send_message(
+        chat.id,
+        _format_doc_card(doc, lang, public_url),
+        parse_mode=ParseMode.HTML,
+        reply_markup=doc_card_keyboard(doc.id),
+    )
+
+
+async def content_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """The 📝 button (agent replies and /search cards): send the document's
+    extracted text as a new message."""
+    query = update.callback_query
+    chat = update.effective_chat
+    if query is None or query.data is None or chat is None:
+        return
+    doc_id = decode_content(query.data)
+    if doc_id is None:
+        await query.answer()
+        return
+
+    lang = _lang(update)
+    deps = get_deps(context)
+    try:
+        doc = await deps.paperless.get_document(doc_id)
+    except PaperlessError:
+        logger.exception("get_document failed (content preview)")
+        await query.answer(t("generic_error", lang), show_alert=True)
+        return
+
+    await query.answer()
+    if doc is None:
+        await context.bot.send_message(chat.id, t("doc_not_found", lang, id=doc_id))
+        return
+
+    text = _format_content_preview(doc, deps.settings.doc_content_max_chars, lang)
+    await context.bot.send_message(chat.id, text, parse_mode=ParseMode.HTML)
+
+
 async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
@@ -416,7 +503,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return True
 
     try:
-        answer = await run_agent(
+        result = await run_agent(
             chat_id=chat_id,
             user_text=message.text,
             lang=lang,
@@ -432,8 +519,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await message.reply_text(t("generic_error", lang))
         return
 
-    if answer:
-        await message.reply_text(answer)
+    if result.text:
+        keyboard = agent_doc_actions_keyboard([doc_id for doc_id, _ in result.mentioned_docs])
+        await message.reply_text(result.text, reply_markup=keyboard)
 
 
 async def expiring_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -496,4 +584,6 @@ def register_handlers(application: Application[Any, Any, Any, Any, Any, Any]) ->
     application.add_handler(CallbackQueryHandler(search_page_callback, pattern=r"^sp:"))
     application.add_handler(CallbackQueryHandler(search_expand_callback, pattern=r"^xd:"))
     application.add_handler(CallbackQueryHandler(search_collapse_callback, pattern=r"^cd:"))
+    application.add_handler(CallbackQueryHandler(preview_callback, pattern=r"^pv:"))
+    application.add_handler(CallbackQueryHandler(content_callback, pattern=r"^pc:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
